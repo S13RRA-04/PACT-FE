@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type PactRole = "admin" | "instructor" | "learner";
 type ContentStatus = "draft" | "published" | "archived";
@@ -111,24 +111,39 @@ export function App() {
   const client = useMemo(() => new PactClient(apiBaseUrl, sessionToken), [sessionToken]);
   const selectedContent = content.find((item) => item.id === selectedContentId) ?? content[0];
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const launchedSessionToken = params.get("sessionToken");
+    if (!launchedSessionToken) return;
+    setSessionToken(launchedSessionToken);
+    window.localStorage.setItem("pact_session", launchedSessionToken);
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    setStatus("LMS launch session received.");
+    void syncDashboard(new PactClient(apiBaseUrl, launchedSessionToken));
+  }, []);
+
   async function saveSession() {
     window.localStorage.setItem("pact_session", sessionToken.trim());
     setStatus("Session saved.");
   }
 
   async function loadDashboard() {
+    await syncDashboard(client);
+  }
+
+  async function syncDashboard(pactClient: PactClient) {
     try {
       setStatus("Loading PACT content.");
       const [sessionResponse, contentResponse, scoreboardResponse] = await Promise.all([
-        client.getSession(),
-        client.getContent(),
-        client.getScoreboard()
+        pactClient.getSession(),
+        pactClient.getContent(),
+        pactClient.getScoreboard()
       ]);
       setSession(sessionResponse);
       setContent(contentResponse);
       setScoreboard(scoreboardResponse.entries);
       setSelectedContentId((current) => current ?? contentResponse[0]?.id);
-      setManagedContent(sessionResponse.role === "admin" || sessionResponse.role === "instructor" ? await client.getManagedContent() : []);
+      setManagedContent(sessionResponse.role === "admin" || sessionResponse.role === "instructor" ? await pactClient.getManagedContent() : []);
       setStatus("PACT content synced from Mongo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to sync PACT content.");
