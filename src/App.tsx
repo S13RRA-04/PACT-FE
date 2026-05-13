@@ -92,7 +92,22 @@ type AnswerValue = string | string[] | Record<string, string> | boolean;
 type AnswerState = Record<string, AnswerValue>;
 type View = "modules" | "manage" | "scoreboard";
 
-const apiBaseUrl = (import.meta.env.VITE_PACT_API_BASE_URL ?? "http://localhost:4100").replace(/\/$/, "");
+const apiBaseUrl = requireApiBaseUrl();
+
+function requireApiBaseUrl() {
+  const value = (import.meta.env.VITE_PACT_API_BASE_URL ?? "http://localhost:4100").replace(/\/$/, "");
+
+  if (import.meta.env.PROD) {
+    const url = new URL(value);
+    const isLocal = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+    const isPlaceholder = url.hostname === "example.com" || url.hostname.endsWith(".example.com");
+    if (url.protocol !== "https:" || isLocal || isPlaceholder) {
+      throw new Error("VITE_PACT_API_BASE_URL must be a real HTTPS API URL for production builds");
+    }
+  }
+
+  return value;
+}
 
 export function App() {
   const [sessionToken, setSessionToken] = useState(() => window.localStorage.getItem("pact_session") ?? "");

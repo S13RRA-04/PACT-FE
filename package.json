@@ -7,7 +7,9 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -p tsconfig.json && vite build",
     "build:staging": "tsc -p tsconfig.json && vite build --mode staging",
+    "build:production": "tsc -p tsconfig.json && vite build --mode production",
     "deploy:staging": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-staging.ps1",
+    "deploy:production": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-production.ps1",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
