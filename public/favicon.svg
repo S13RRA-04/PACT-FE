@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PACT">
+  <rect width="64" height="64" rx="12" fill="#102033"/>
+  <path d="M18 46V18h17c7 0 11 4 11 10s-4 10-11 10h-7v8H18Zm10-16h6c2 0 4-1 4-3s-2-3-4-3h-6v6Z" fill="#f7fbff"/>
+  <path d="M44 46 35 34h10l9 12H44Z" fill="#33b6a6"/>
+</svg>

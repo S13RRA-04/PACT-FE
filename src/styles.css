@@ -60,33 +60,33 @@ h1 {
 }
 
 .theme-squad-1 {
-  --accent: #bd2b2b;
-  --accent-soft: #f8dddd;
-  --accent-dark: #351313;
+  --accent: #c62828;
+  --accent-soft: #fde2e2;
+  --accent-dark: #3a1010;
 }
 
 .theme-squad-2 {
-  --accent: #96700d;
-  --accent-soft: #fff0b8;
-  --accent-dark: #31240a;
+  --accent: #d69d00;
+  --accent-soft: #fff3bf;
+  --accent-dark: #3d2b00;
 }
 
 .theme-squad-3 {
-  --accent: #257a3f;
+  --accent: #2e7d32;
   --accent-soft: #dff3e4;
-  --accent-dark: #102719;
+  --accent-dark: #102a14;
 }
 
 .theme-squad-4 {
-  --accent: #285ea8;
-  --accent-soft: #dce9fb;
-  --accent-dark: #11243e;
+  --accent: #1565c0;
+  --accent-soft: #dcecff;
+  --accent-dark: #0d2748;
 }
 
 .theme-staff {
-  --accent: #65717b;
-  --accent-soft: #e8edf0;
-  --accent-dark: #1f252a;
+  --accent: #6f7780;
+  --accent-soft: #eceff1;
+  --accent-dark: #252a2f;
 }
 
 .brand {
@@ -172,6 +172,16 @@ nav button.active {
   padding: 0.65rem 0.75rem;
 }
 
+.session-panel .warning-line {
+  background: #fff4d8;
+  border: 1px solid #e4ba58;
+  border-radius: 8px;
+  color: #654710;
+  font-weight: 800;
+  margin-top: 0;
+  padding: 0.65rem 0.75rem;
+}
+
 .session-panel,
 article {
   background: #fff;
@@ -199,13 +209,19 @@ article {
   gap: 0.75rem;
 }
 
-.diagnostic-grid {
+.diagnostic-panel {
   border-top: 1px solid #e5ece8;
   display: grid;
   gap: 0.75rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0.25rem 0 0;
   padding-top: 0.85rem;
+}
+
+.diagnostic-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
 }
 
 .diagnostic-grid div {
@@ -225,6 +241,22 @@ article {
   font-weight: 800;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.content-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.content-counts span {
+  background: #f4f8f6;
+  border: 1px solid #dfe7e2;
+  border-radius: 999px;
+  color: #40524b;
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.35rem 0.55rem;
 }
 
 input,
@@ -365,7 +397,7 @@ select {
 }
 
 .gate-row {
-  grid-template-columns: 110px minmax(0, 1fr) 110px auto;
+  grid-template-columns: 110px minmax(0, 1fr) minmax(10rem, 13rem) minmax(12rem, 16rem) auto;
 }
 
 .gate-row div {
@@ -376,6 +408,28 @@ select {
 }
 
 .gate-row button {
+  padding: 0.55rem 0.7rem;
+}
+
+.gate-row > div:first-of-type {
+  display: grid;
+  gap: 0.25rem;
+  justify-content: stretch;
+}
+
+.inline-select {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.inline-select span {
+  color: #60716b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.inline-select select {
   padding: 0.55rem 0.7rem;
 }
 
@@ -407,9 +461,21 @@ select {
 
 .cohort-list,
 .admin-user-list,
-.audit-list {
+.audit-list,
+.control-plane {
   display: grid;
   gap: 0.75rem;
+}
+
+.section-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.section-head p {
+  color: #60716b;
+  margin-top: 0.35rem;
 }
 
 .cohort-panel {

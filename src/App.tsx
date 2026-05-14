@@ -14,6 +14,7 @@ type PactSession = {
   cohortId: string;
   squadId?: string;
   squadNumber?: SquadNumber;
+  contentType?: ContentType;
 };
 
 type ScoreboardEntry = {
@@ -69,7 +70,22 @@ type SessionDiagnostic = {
   courseId: string;
   cohortId: string;
   role: PactRole;
+  contentType?: ContentType;
   visibleContentCount: number;
+  contentCounts?: ContentCountDiagnostic[];
+  publishedModuleWarning?: {
+    code: "NO_PUBLISHED_MODULES";
+    message: string;
+  };
+};
+
+type ContentCountDiagnostic = {
+  courseId: string;
+  cohortId: string | null;
+  type: ContentType;
+  status: ContentStatus;
+  count: number;
+  questions: number;
 };
 
 type LocalizedText = {
@@ -128,8 +144,10 @@ type PactQuestion = {
 
 type PactContent = {
   id: string;
+  cohortId?: string | null;
   type: ContentType;
   title: string;
+  lmsLabel?: string;
   prompt: string;
   maxScore: number;
   status?: ContentStatus;
@@ -140,7 +158,7 @@ type PactContent = {
 
 type AnswerValue = string | string[] | Record<string, string> | boolean;
 type AnswerState = Record<string, AnswerValue>;
-type View = "modules" | "admin" | "manage" | "scoreboard";
+type View = "modules" | "control" | "scoreboard";
 
 const apiBaseUrl = requireApiBaseUrl();
 
@@ -214,13 +232,12 @@ export function App() {
       setScoreboard(scoreboardResponse.entries);
       setSelectedContentId((current) => current ?? contentResponse[0]?.id);
       const canManageSession = sessionResponse.role === "admin" || sessionResponse.role === "instructor";
-      const canAdminSession = sessionResponse.role === "admin";
       const [managedResponse, diagnosticResponse, adminResponse, auditResponse] = canManageSession
         ? await Promise.all([
             pactClient.getManagedContent(),
             pactClient.getSessionDiagnostic(),
-            canAdminSession ? pactClient.getAdminCohorts() : Promise.resolve({ cohorts: [] }),
-            canAdminSession ? pactClient.getAdminAuditEvents() : Promise.resolve({ events: [] })
+            pactClient.getAdminCohorts(),
+            sessionResponse.role === "admin" ? pactClient.getAdminAuditEvents() : Promise.resolve({ events: [] })
           ])
         : [[], undefined, { cohorts: [] }, { events: [] }];
       setManagedContent(managedResponse);
@@ -245,6 +262,35 @@ export function App() {
       setStatus(`Content set to ${nextStatus}.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to update content gate.");
+    }
+  }
+
+  async function assignContentCohort(contentId: string, cohortId: string | null) {
+    try {
+      await client.updateContentAssignment(contentId, cohortId);
+      const [contentResponse, managedResponse, diagnosticResponse] = await Promise.all([
+        client.getContent(),
+        client.getManagedContent(),
+        client.getSessionDiagnostic()
+      ]);
+      setContent(contentResponse);
+      setManagedContent(managedResponse);
+      setDiagnostic(diagnosticResponse);
+      setStatus(cohortId ? "Content assigned to cohort." : "Content made available to all cohorts.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to update content assignment.");
+    }
+  }
+
+  async function updateContentLmsLabel(contentId: string, lmsLabel: string | null) {
+    try {
+      await client.updateContentLmsLabel(contentId, lmsLabel);
+      const [contentResponse, managedResponse] = await Promise.all([client.getContent(), client.getManagedContent()]);
+      setContent(contentResponse);
+      setManagedContent(managedResponse);
+      setStatus(lmsLabel ? "LMS label updated." : "LMS label cleared.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to update LMS label.");
     }
   }
 
@@ -296,8 +342,7 @@ export function App() {
         </div>
         <nav>
           <button className={view === "modules" ? "active" : ""} type="button" onClick={() => setView("modules")}>Content</button>
-          {canAdmin ? <button className={view === "admin" ? "active" : ""} type="button" onClick={() => setView("admin")}>Admin</button> : null}
-          {canManage ? <button className={view === "manage" ? "active" : ""} type="button" onClick={() => setView("manage")}>Gate</button> : null}
+          {canManage ? <button className={view === "control" ? "active" : ""} type="button" onClick={() => setView("control")}>Control</button> : null}
           <button className={view === "scoreboard" ? "active" : ""} type="button" onClick={() => setView("scoreboard")}>Scoreboard</button>
         </nav>
       </aside>
@@ -308,7 +353,7 @@ export function App() {
             <h1>PACT Content</h1>
             <p>Mongo-backed learning content, instructor-controlled availability, and score sync.</p>
           </div>
-          {session ? <span className="role-chip">{session.role === "learner" && session.squadNumber ? `Squad ${session.squadNumber}` : roleLabel(session.role)}</span> : null}
+          {session ? <span className="role-chip">{themeLabelFor(session)}</span> : null}
           <button type="button" onClick={() => void loadDashboard()} disabled={!isConnected}>Sync</button>
         </header>
 
@@ -326,11 +371,12 @@ export function App() {
           <p>{session ? `${session.role} session for ${session.courseId}/${session.cohortId}` : status}</p>
           {session ? <p className="status-line">{status}</p> : null}
           {diagnostic ? <SessionDiagnosticSummary diagnostic={diagnostic} /> : null}
+          {diagnostic?.publishedModuleWarning ? <p className="warning-line">{diagnostic.publishedModuleWarning.message}</p> : null}
         </section>
 
         {view === "modules" ? (
           <section className="module-layout">
-            <ModuleList content={content} selectedContentId={selectedContent?.id} onSelect={(id) => {
+            <ModuleList content={content} session={session} selectedContentId={selectedContent?.id} onSelect={(id) => {
               setSelectedContentId(id);
               setAnswers({});
               setResult(undefined);
@@ -345,8 +391,19 @@ export function App() {
           </section>
         ) : null}
 
-        {view === "manage" && canManage ? <GateManager content={managedContent} onUpdate={(id, nextStatus) => void updateGate(id, nextStatus)} /> : null}
-        {view === "admin" && canAdmin ? <AdminConsole cohorts={adminCohorts} auditEvents={adminAuditEvents} onAssign={(userId, squadNumber) => void assignSquad(userId, squadNumber)} /> : null}
+        {view === "control" && canManage ? (
+          <ControlPlane
+            content={managedContent}
+            cohorts={adminCohorts}
+            auditEvents={adminAuditEvents}
+            diagnostic={diagnostic}
+            canAdmin={canAdmin}
+            onUpdateStatus={(id, nextStatus) => void updateGate(id, nextStatus)}
+            onAssignContent={(id, cohortId) => void assignContentCohort(id, cohortId)}
+            onUpdateLmsLabel={(id, lmsLabel) => void updateContentLmsLabel(id, lmsLabel)}
+            onAssignSquad={(userId, squadNumber) => void assignSquad(userId, squadNumber)}
+          />
+        ) : null}
         {view === "scoreboard" ? <Scoreboard entries={scoreboard} /> : null}
       </section>
     </main>
@@ -355,24 +412,39 @@ export function App() {
 
 function SessionDiagnosticSummary({ diagnostic }: { diagnostic: SessionDiagnostic }) {
   return (
-    <dl className="diagnostic-grid" aria-label="Session diagnostics">
-      <div>
-        <dt>Course</dt>
-        <dd>{diagnostic.courseId}</dd>
-      </div>
-      <div>
-        <dt>Cohort</dt>
-        <dd>{diagnostic.cohortId}</dd>
-      </div>
-      <div>
-        <dt>Visible</dt>
-        <dd>{diagnostic.visibleContentCount}</dd>
-      </div>
-    </dl>
+    <div className="diagnostic-panel" aria-label="Session diagnostics">
+      <dl className="diagnostic-grid">
+        <div>
+          <dt>Course</dt>
+          <dd>{diagnostic.courseId}</dd>
+        </div>
+        <div>
+          <dt>Cohort</dt>
+          <dd>{diagnostic.cohortId}</dd>
+        </div>
+        <div>
+          <dt>Visible</dt>
+          <dd>{diagnostic.visibleContentCount}</dd>
+        </div>
+        <div>
+          <dt>Launch Type</dt>
+          <dd>{diagnostic.contentType ? contentTypeLabel(diagnostic.contentType) : "All"}</dd>
+        </div>
+      </dl>
+      {diagnostic.contentCounts?.length ? (
+        <div className="content-counts" aria-label="Content counts">
+          {diagnostic.contentCounts.map((item) => (
+            <span key={`${item.courseId}-${item.cohortId ?? "global"}-${item.type}-${item.status}`}>
+              {item.courseId}/{item.cohortId ?? "global"} {contentTypeLabel(item.type)} {item.status}: {item.count}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-function ModuleList({ content, selectedContentId, onSelect }: { content: PactContent[]; selectedContentId?: string; onSelect: (id: string) => void }) {
+function ModuleList({ content, session, selectedContentId, onSelect }: { content: PactContent[]; session?: PactSession; selectedContentId?: string; onSelect: (id: string) => void }) {
   return (
     <article className="module-list">
       <h2>Available Content</h2>
@@ -383,7 +455,7 @@ function ModuleList({ content, selectedContentId, onSelect }: { content: PactCon
             <strong>{item.title}</strong>
             <small>{item.questionCount ?? item.questions?.length ?? 0} questions - {item.maxScore} pts</small>
           </button>
-        )) : <Empty text="No published content is assigned to this session." />}
+        )) : <Empty text={emptyContentMessage(session)} />}
       </div>
     </article>
   );
@@ -500,19 +572,92 @@ function QuestionInput({ question, value, onChange }: { question: PactQuestion; 
   );
 }
 
-function GateManager({ content, onUpdate }: { content: PactContent[]; onUpdate: (id: string, status: ContentStatus) => void }) {
+function ControlPlane({
+  content,
+  cohorts,
+  auditEvents,
+  diagnostic,
+  canAdmin,
+  onUpdateStatus,
+  onAssignContent,
+  onUpdateLmsLabel,
+  onAssignSquad
+}: {
+  content: PactContent[];
+  cohorts: AdminCohort[];
+  auditEvents: AdminAuditEvent[];
+  diagnostic?: SessionDiagnostic;
+  canAdmin: boolean;
+  onUpdateStatus: (id: string, status: ContentStatus) => void;
+  onAssignContent: (id: string, cohortId: string | null) => void;
+  onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
+  onAssignSquad: (userId: string, squadNumber: SquadNumber) => void;
+}) {
+  return (
+    <section className="control-plane">
+      <article>
+        <header className="section-head">
+          <div>
+            <h2>Control Plane</h2>
+            <p>Manage PACT content delivery, cohort assignment, user squads, and diagnostics.</p>
+          </div>
+        </header>
+        {diagnostic ? <SessionDiagnosticSummary diagnostic={diagnostic} /> : null}
+      </article>
+      <ContentDeliveryManager content={content} cohorts={cohorts} onUpdateStatus={onUpdateStatus} onAssignContent={onAssignContent} onUpdateLmsLabel={onUpdateLmsLabel} />
+      <AdminConsole cohorts={cohorts} auditEvents={canAdmin ? auditEvents : []} onAssign={onAssignSquad} showAudit={canAdmin} />
+    </section>
+  );
+}
+
+function ContentDeliveryManager({
+  content,
+  cohorts,
+  onUpdateStatus,
+  onAssignContent,
+  onUpdateLmsLabel
+}: {
+  content: PactContent[];
+  cohorts: AdminCohort[];
+  onUpdateStatus: (id: string, status: ContentStatus) => void;
+  onAssignContent: (id: string, cohortId: string | null) => void;
+  onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
+}) {
+  const cohortOptions = Array.from(new Set(cohorts.map((cohort) => cohort.cohortId))).sort();
   return (
     <article>
-      <h2>Content Gate</h2>
+      <h2>Content Delivery</h2>
       <div className="list">
         {content.length ? content.map((item) => (
           <div className="gate-row" key={item.id}>
             <span className={`status ${item.status ?? "draft"}`}>{item.status ?? "draft"}</span>
-            <strong>{item.title}</strong>
-            <small>{contentTypeLabel(item.type)} - {item.questionCount ?? item.questions?.length ?? 0} questions</small>
+            <div>
+              <strong>{item.title}</strong>
+              <small>{contentTypeLabel(item.type)} - {item.questionCount ?? item.questions?.length ?? 0} questions - {item.cohortId ?? "all cohorts"}</small>
+            </div>
+            <label className="inline-select">
+              <span>Cohort</span>
+              <select value={item.cohortId ?? ""} onChange={(event) => onAssignContent(item.id, event.target.value || null)}>
+                <option value="">All cohorts</option>
+                {cohortOptions.map((cohortId) => <option key={cohortId} value={cohortId}>{cohortId}</option>)}
+              </select>
+            </label>
+            <label className="inline-select">
+              <span>LMS label</span>
+              <input
+                defaultValue={item.lmsLabel ?? ""}
+                onBlur={(event) => {
+                  const nextLabel = event.currentTarget.value.trim();
+                  if (nextLabel !== (item.lmsLabel ?? "")) {
+                    onUpdateLmsLabel(item.id, nextLabel || null);
+                  }
+                }}
+                placeholder={item.title}
+              />
+            </label>
             <div>
               {(["draft", "published", "archived"] as ContentStatus[]).map((status) => (
-                <button disabled={item.status === status} key={status} type="button" onClick={() => onUpdate(item.id, status)}>{status}</button>
+                <button disabled={item.status === status} key={status} type="button" onClick={() => onUpdateStatus(item.id, status)}>{status}</button>
               ))}
             </div>
           </div>
@@ -522,10 +667,10 @@ function GateManager({ content, onUpdate }: { content: PactContent[]; onUpdate: 
   );
 }
 
-function AdminConsole({ cohorts, auditEvents, onAssign }: { cohorts: AdminCohort[]; auditEvents: AdminAuditEvent[]; onAssign: (userId: string, squadNumber: SquadNumber) => void }) {
+function AdminConsole({ cohorts, auditEvents, onAssign, showAudit = true }: { cohorts: AdminCohort[]; auditEvents: AdminAuditEvent[]; onAssign: (userId: string, squadNumber: SquadNumber) => void; showAudit?: boolean }) {
   return (
     <article className="admin-console">
-      <h2>Administrator Console</h2>
+      <h2>PACT Users</h2>
       <div className="cohort-list">
         {cohorts.length ? cohorts.map((cohort) => (
           <section className="cohort-panel" key={cohort.cohortId}>
@@ -565,14 +710,14 @@ function AdminConsole({ cohorts, auditEvents, onAssign }: { cohorts: AdminCohort
                         </button>
                       ))}
                     </div>
-                  ) : <span className="staff-pill">Grey</span>}
+                  ) : <span className="staff-pill">Grey - {roleLabel(user.role)}</span>}
                 </div>
               ))}
             </div>
           </section>
         )) : <Empty text="No cohorts or enrolled users are available for this admin session." />}
       </div>
-      <section className="audit-panel">
+      {showAudit ? <section className="audit-panel">
         <header>
           <h3>Assignment History</h3>
           <small>{auditEvents.length} recent changes</small>
@@ -591,7 +736,7 @@ function AdminConsole({ cohorts, auditEvents, onAssign }: { cohorts: AdminCohort
             </div>
           )) : <Empty text="No squad assignment changes have been recorded yet." />}
         </div>
-      </section>
+      </section> : null}
     </article>
   );
 }
@@ -650,6 +795,16 @@ function contentTypeLabel(type: ContentType) {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
+function emptyContentMessage(session?: PactSession) {
+  if (session?.role === "admin" || session?.role === "instructor") {
+    return "No content is assigned to this course or cohort yet.";
+  }
+
+  const type = session?.contentType ? `${contentTypeLabel(session.contentType).toLowerCase()} content` : "published content";
+  const context = session ? `course ${session.courseId} and cohort ${session.cohortId}` : "this launch session";
+  return `No published ${type} matches ${context}. Ask an instructor to publish or assign content for this launch.`;
+}
+
 function roleLabel(role: PactRole | string) {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
@@ -657,6 +812,21 @@ function roleLabel(role: PactRole | string) {
 function themeClassFor(role: PactRole, squadNumber?: SquadNumber) {
   if (role !== "learner") return "theme-staff";
   return squadNumber ? `theme-squad-${squadNumber}` : "theme-neutral";
+}
+
+function themeLabelFor(session: PactSession) {
+  if (session.role !== "learner") return `Grey - ${roleLabel(session.role)}`;
+  if (!session.squadNumber) return "Unassigned";
+  return `${squadColorLabel(session.squadNumber)} - Squad ${session.squadNumber}`;
+}
+
+function squadColorLabel(squadNumber: SquadNumber) {
+  return {
+    "1": "Red",
+    "2": "Yellow",
+    "3": "Green",
+    "4": "Blue"
+  }[squadNumber];
 }
 
 function formatDateTime(value: string) {
@@ -709,6 +879,20 @@ class PactClient {
     return this.request<PactContent>(`/api/v1/admin/content/${encodeURIComponent(contentId)}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status })
+    });
+  }
+
+  async updateContentAssignment(contentId: string, cohortId: string | null) {
+    return this.request<PactContent>(`/api/v1/admin/content/${encodeURIComponent(contentId)}/assignment`, {
+      method: "PATCH",
+      body: JSON.stringify({ cohortId })
+    });
+  }
+
+  async updateContentLmsLabel(contentId: string, lmsLabel: string | null) {
+    return this.request<PactContent>(`/api/v1/admin/content/${encodeURIComponent(contentId)}/lms-label`, {
+      method: "PATCH",
+      body: JSON.stringify({ lmsLabel })
     });
   }
 

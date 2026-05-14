@@ -1,9 +1,14 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 
 describe("PACT admin console", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
   it("loads cohorts and assigns a learner to a numbered squad", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -28,7 +33,18 @@ describe("PACT admin console", () => {
           courseId: "course-a",
           cohortId: "cohort-a",
           role: "admin",
-          visibleContentCount: 0
+          contentType: "module",
+          visibleContentCount: 0,
+          contentCounts: [
+            {
+              courseId: "course-a",
+              cohortId: null,
+              type: "module",
+              status: "published",
+              count: 8,
+              questions: 96
+            }
+          ]
         });
       }
       if (path === "/api/v1/admin/cohorts") {
@@ -96,10 +112,16 @@ describe("PACT admin console", () => {
 
     await userEvent.type(screen.getByLabelText(/PACT session token/i), "admin-token");
     await userEvent.click(screen.getByRole("button", { name: "Sync" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Admin" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Control" }));
 
-    expect(await screen.findByRole("heading", { name: "Administrator Console" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Control Plane" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "PACT Users" })).toBeInTheDocument();
+    expect(screen.getByText("Grey - Admin")).toBeInTheDocument();
+    expect(screen.getAllByText("Launch Type").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Module").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("course-a/global Module published: 8").length).toBeGreaterThan(0);
     expect(await screen.findByRole("heading", { name: "Assignment History" })).toBeInTheDocument();
+    expect(screen.getByText("Grey - Instructor")).toBeInTheDocument();
     const learnerRow = screen.getAllByText("Learner One")
       .map((element) => element.closest(".admin-user-row"))
       .find((element): element is HTMLElement => element instanceof HTMLElement);
@@ -117,6 +139,40 @@ describe("PACT admin console", () => {
         body: JSON.stringify({ squadNumber: "3" })
       })
     );
+  });
+
+  it("themes the active learner session from the PACT squad assignment", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+
+      if (path === "/api/v1/session") {
+        return jsonResponse({
+          userId: "learner-3",
+          role: "learner",
+          courseId: "course-a",
+          cohortId: "cohort-a",
+          squadId: "squad-3",
+          squadNumber: "3"
+        });
+      }
+      if (path === "/api/v1/content") {
+        return jsonResponse([]);
+      }
+      if (path === "/api/v1/dashboard/scoreboard") {
+        return jsonResponse({ entries: [] });
+      }
+
+      return jsonResponse({ error: { message: `Unexpected request: ${path}` } }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { container } = render(<App />);
+
+    await userEvent.type(screen.getByLabelText(/PACT session token/i), "learner-token");
+    await userEvent.click(screen.getByRole("button", { name: "Sync" }));
+
+    expect(await screen.findByText("Green - Squad 3")).toBeInTheDocument();
+    expect(container.querySelector("main")).toHaveClass("theme-squad-3");
   });
 });
 
