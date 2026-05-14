@@ -180,6 +180,50 @@ describe("PACT admin console", () => {
     expect(await screen.findByText("Green - Squad 3")).toBeInTheDocument();
     expect(container.querySelector("main")).toHaveClass("theme-squad-3");
   });
+
+  it("keeps loading content when the deployed API does not have progress endpoints yet", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+
+      if (path === "/api/v1/session") {
+        return jsonResponse({
+          userId: "learner-legacy",
+          role: "learner",
+          courseId: "course-a",
+          cohortId: "cohort-a"
+        });
+      }
+      if (path === "/api/v1/content") {
+        return jsonResponse([
+          {
+            id: "legacy-module",
+            type: "module",
+            title: "Legacy Module",
+            prompt: "Answer the prompt",
+            maxScore: 10,
+            questions: []
+          }
+        ]);
+      }
+      if (path === "/api/v1/content/progress") {
+        return jsonResponse({ error: { message: "Not found" } }, 404);
+      }
+      if (path === "/api/v1/dashboard/scoreboard") {
+        return jsonResponse({ entries: [] });
+      }
+
+      return jsonResponse({ error: { message: `Unexpected request: ${path}` } }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await userEvent.type(screen.getByLabelText(/PACT session token/i), "legacy-token");
+    await userEvent.click(screen.getByRole("button", { name: "Sync" }));
+
+    expect(await screen.findByRole("heading", { name: "Legacy Module", level: 2 })).toBeInTheDocument();
+    expect(screen.getAllByText("PACT content synced from Mongo.").length).toBeGreaterThan(0);
+  });
 });
 
 function jsonResponse(body: unknown, status = 200) {

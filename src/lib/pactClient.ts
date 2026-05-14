@@ -12,14 +12,28 @@ export class PactClient {
   }
 
   async getContentProgress() {
-    return this.request<{ progress: ContentProgress[] }>("/api/v1/content/progress");
+    try {
+      return await this.request<{ progress: ContentProgress[] }>("/api/v1/content/progress");
+    } catch (error) {
+      if (error instanceof PactApiError && error.status === 404) {
+        return { progress: [] };
+      }
+      throw error;
+    }
   }
 
   async updateContentProgress(contentId: string, input: Pick<ContentProgress, "answers" | "progressPercent">) {
-    return this.request<ContentProgress>(`/api/v1/content/${encodeURIComponent(contentId)}/progress`, {
-      method: "PATCH",
-      body: JSON.stringify(input)
-    });
+    try {
+      return await this.request<ContentProgress>(`/api/v1/content/${encodeURIComponent(contentId)}/progress`, {
+        method: "PATCH",
+        body: JSON.stringify(input)
+      });
+    } catch (error) {
+      if (error instanceof PactApiError && error.status === 404) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   async getManagedContent() {
@@ -84,8 +98,15 @@ export class PactClient {
     const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error?.message ?? "PACT API request failed");
+      throw new PactApiError(response.status, payload.error?.message ?? "PACT API request failed");
     }
     return response.json() as Promise<T>;
+  }
+}
+
+class PactApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "PactApiError";
   }
 }

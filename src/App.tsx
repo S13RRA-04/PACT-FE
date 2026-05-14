@@ -132,8 +132,12 @@ export function App() {
     setAnswers(nextAnswers);
     try {
       const updated = await client.updateContentProgress(selectedContent.id, { answers: nextAnswers, progressPercent });
-      setProgress((current) => [updated, ...current.filter((item) => item.contentId !== updated.contentId)]);
-      setStatus("Progress saved.");
+      if (updated) {
+        setProgress((current) => [updated, ...current.filter((item) => item.contentId !== updated.contentId)]);
+        setStatus("Progress saved.");
+      } else {
+        setStatus("Progress saved locally. Backend progress sync is not deployed yet.");
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to save progress.");
     }
