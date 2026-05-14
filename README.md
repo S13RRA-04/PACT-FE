@@ -22,6 +22,8 @@ Staging and production are intentionally separate Cloudflare Pages deployments.
 
 The deployment scripts require `VITE_PACT_API_BASE_URL` to be HTTPS, non-local, and non-placeholder. Staging requires a clearly named staging API host; production rejects staging hosts.
 
+Security headers are served by Cloudflare Pages from `public/_headers`. If PACT API or LMS launch origins change, update the CSP `connect-src`, `form-action`, and `frame-ancestors` directives before deploying.
+
 Use a Cloudflare API token only in the current shell session:
 
 ```powershell
