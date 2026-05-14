@@ -4,7 +4,7 @@ import { ContentWorkspace, ControlPlane, Scoreboard, SessionDiagnosticSummary } 
 import { contextSquadLabel, initialsFor, roleLabel, themeLabelFor } from "./lib/format";
 import { PactClient } from "./lib/pactClient";
 import { scoreQuestion } from "./lib/scoring";
-import type { AdminAuditEvent, AdminCohort, AnswerState, AnswerValue, ContentFilter, ContentProgress, ContentStatus, PactContent, PactSession, ScoreboardEntry, SessionDiagnostic, SquadNumber, View } from "./types";
+import type { AdminAuditEvent, AdminCohort, AnswerState, AnswerValue, ContentFilter, ContentProgress, ContentStatus, PactContent, PactSession, QuestionAttempt, ScoreboardEntry, SessionDiagnostic, SquadNumber, View } from "./types";
 
 const apiBaseUrl = requireApiBaseUrl();
 
@@ -33,8 +33,11 @@ export function App() {
   const [managedContent, setManagedContent] = useState<PactContent[]>([]);
   const [adminCohorts, setAdminCohorts] = useState<AdminCohort[]>([]);
   const [adminAuditEvents, setAdminAuditEvents] = useState<AdminAuditEvent[]>([]);
+  const [questionAttempts, setQuestionAttempts] = useState<QuestionAttempt[]>([]);
   const [selectedContentId, setSelectedContentId] = useState<string | undefined>();
   const [answers, setAnswers] = useState<AnswerState>({});
+  const [submittedQuestionIds, setSubmittedQuestionIds] = useState<string[]>([]);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const [result, setResult] = useState<{ score: number; maxScore: number } | undefined>();
   const [view, setView] = useState<View>("modules");
   const [contentFilter, setContentFilter] = useState<ContentFilter>("all");
@@ -51,7 +54,7 @@ export function App() {
   const selectedContent = filteredContent.find((item) => item.id === selectedContentId) ?? filteredContent[0] ?? content[0];
   const selectedProgress = progress.find((item) => item.contentId === selectedContent?.id);
   const themeClass = session ? themeClassFor(session.role, session.squadNumber) : "theme-neutral";
-  const answeredCount = selectedContent?.questions?.filter((question) => answers[question.id] !== undefined).length ?? 0;
+  const answeredCount = selectedContent?.questions?.filter((question) => submittedQuestionIds.includes(question.id)).length ?? 0;
   const selectedQuestionCount = selectedContent?.questions?.length ?? 0;
   const selectedProgressPercent = selectedQuestionCount ? Math.round((answeredCount / selectedQuestionCount) * 100) : selectedProgress?.progressPercent ?? 0;
   const availableTypes = useMemo(() => {
@@ -93,8 +96,11 @@ export function App() {
       setProgress(progressResponse.progress);
       setScoreboard(scoreboardResponse.entries);
       const nextSelectedId = selectedContentId ?? contentResponse[0]?.id;
+      const nextProgress = progressResponse.progress.find((item) => item.contentId === nextSelectedId);
       setSelectedContentId(nextSelectedId);
-      setAnswers(progressResponse.progress.find((item) => item.contentId === nextSelectedId)?.answers ?? {});
+      setAnswers(nextProgress?.answers ?? {});
+      setSubmittedQuestionIds(nextProgress?.answeredQuestionIds ?? []);
+      setActiveQuestionIndex(firstOpenQuestionIndex(contentResponse.find((item) => item.id === nextSelectedId), nextProgress?.answeredQuestionIds ?? []));
       setResult(undefined);
 
       const canManageSession = sessionResponse.role === "admin" || sessionResponse.role === "instructor";
@@ -106,10 +112,14 @@ export function App() {
             sessionResponse.role === "admin" ? pactClient.getAdminAuditEvents() : Promise.resolve({ events: [] })
           ])
         : [[], undefined, { cohorts: [] }, { events: [] }];
+      const attemptsResponse = canManageSession
+        ? await pactClient.getQuestionAttempts({ cohortId: sessionResponse.cohortId, limit: 200 })
+        : { attempts: [] };
       setManagedContent(managedResponse);
       setDiagnostic(diagnosticResponse);
       setAdminCohorts(adminResponse.cohorts);
       setAdminAuditEvents(auditResponse.events);
+      setQuestionAttempts(attemptsResponse.attempts);
       setStatus("PACT content synced from Mongo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to sync PACT content.");
@@ -117,29 +127,56 @@ export function App() {
   }
 
   function selectContent(contentId: string) {
+    const nextContent = content.find((item) => item.id === contentId);
+    const nextProgress = progress.find((item) => item.contentId === contentId);
     setSelectedContentId(contentId);
-    setAnswers(progress.find((item) => item.contentId === contentId)?.answers ?? {});
+    setAnswers(nextProgress?.answers ?? {});
+    setSubmittedQuestionIds(nextProgress?.answeredQuestionIds ?? []);
+    setActiveQuestionIndex(firstOpenQuestionIndex(nextContent, nextProgress?.answeredQuestionIds ?? []));
     setResult(undefined);
   }
 
-  async function saveAnswer(questionId: string, value: AnswerValue) {
+  function saveAnswer(questionId: string, value: AnswerValue) {
     if (!selectedContent) return;
-    const nextAnswers = { ...answers, [questionId]: value };
+    setAnswers((current) => ({ ...current, [questionId]: value }));
+    setResult(undefined);
+  }
+
+  async function submitQuestion(questionId: string) {
+    if (!selectedContent || answers[questionId] === undefined) return;
+    const nextSubmittedIds = Array.from(new Set([...submittedQuestionIds, questionId]));
     const questionCount = selectedContent.questions?.length ?? 0;
     const progressPercent = questionCount
-      ? Math.round((selectedContent.questions ?? []).filter((question) => nextAnswers[question.id] !== undefined).length / questionCount * 100)
+      ? Math.round((selectedContent.questions ?? []).filter((question) => nextSubmittedIds.includes(question.id)).length / questionCount * 100)
       : 0;
-    setAnswers(nextAnswers);
+    setSubmittedQuestionIds(nextSubmittedIds);
     try {
-      const updated = await client.updateContentProgress(selectedContent.id, { answers: nextAnswers, progressPercent });
+      const attemptResponse = await client.submitQuestionAttempt(selectedContent.id, questionId, {
+        answer: answers[questionId],
+        feedbackExposed: true
+      });
+      if (attemptResponse) {
+        setProgress((current) => [attemptResponse.progress, ...current.filter((item) => item.contentId !== attemptResponse.progress.contentId)]);
+        setSubmittedQuestionIds(attemptResponse.progress.answeredQuestionIds);
+        setStatus("Question submitted. Feedback is available.");
+        return;
+      }
+
+      const submittedAnswers = Object.fromEntries(
+        nextSubmittedIds
+          .filter((id) => answers[id] !== undefined)
+          .map((id) => [id, answers[id]])
+      );
+      const updated = await client.updateContentProgress(selectedContent.id, { answers: submittedAnswers, progressPercent });
       if (updated) {
         setProgress((current) => [updated, ...current.filter((item) => item.contentId !== updated.contentId)]);
-        setStatus("Progress saved.");
+        setSubmittedQuestionIds(updated.answeredQuestionIds);
+        setStatus("Question submitted. Feedback is available.");
       } else {
-        setStatus("Progress saved locally. Backend progress sync is not deployed yet.");
+        setStatus("Question submitted locally. Backend progress sync is not deployed yet.");
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to save progress.");
+      setStatus(error instanceof Error ? error.message : "Unable to submit question.");
     }
   }
 
@@ -199,6 +236,16 @@ export function App() {
       setStatus(`Learner assigned to Squad ${squadNumber}.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to assign learner squad.");
+    }
+  }
+
+  async function loadQuestionAttempts(input: { cohortId?: string; contentId?: string; userId?: string; questionId?: string }) {
+    try {
+      const response = await client.getQuestionAttempts({ ...input, limit: 200 });
+      setQuestionAttempts(response.attempts);
+      setStatus("Question attempts loaded.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to load question attempts.");
     }
   }
 
@@ -278,6 +325,8 @@ export function App() {
             selectedContent={selectedContent}
             answers={answers}
             answeredCount={answeredCount}
+            activeQuestionIndex={activeQuestionIndex}
+            submittedQuestionIds={submittedQuestionIds}
             progressPercent={selectedProgressPercent}
             result={result}
             persistedProgress={selectedProgress}
@@ -285,13 +334,18 @@ export function App() {
             status={status}
             onFilterChange={(nextFilter) => {
               const nextContent = content.find((item) => nextFilter === "all" || item.type === nextFilter);
+              const nextProgress = progress.find((item) => item.contentId === nextContent?.id);
               setContentFilter(nextFilter);
               setSelectedContentId(nextContent?.id);
-              setAnswers(progress.find((item) => item.contentId === nextContent?.id)?.answers ?? {});
+              setAnswers(nextProgress?.answers ?? {});
+              setSubmittedQuestionIds(nextProgress?.answeredQuestionIds ?? []);
+              setActiveQuestionIndex(firstOpenQuestionIndex(nextContent, nextProgress?.answeredQuestionIds ?? []));
               setResult(undefined);
             }}
             onSelectContent={selectContent}
-            onAnswer={(questionId, value) => void saveAnswer(questionId, value)}
+            onAnswer={saveAnswer}
+            onQuestionSelect={setActiveQuestionIndex}
+            onSubmitQuestion={(questionId) => void submitQuestion(questionId)}
             onSubmit={() => void submitSelectedModule()}
           />
         ) : null}
@@ -301,12 +355,14 @@ export function App() {
             content={managedContent}
             cohorts={adminCohorts}
             auditEvents={adminAuditEvents}
+            questionAttempts={questionAttempts}
             diagnostic={diagnostic}
             canAdmin={canAdmin}
             onUpdateStatus={(id, nextStatus) => void updateGate(id, nextStatus)}
             onAssignContent={(id, cohortId) => void assignContentCohort(id, cohortId)}
             onUpdateLmsLabel={(id, lmsLabel) => void updateContentLmsLabel(id, lmsLabel)}
             onAssignSquad={(userId, squadNumber) => void assignSquad(userId, squadNumber)}
+            onLoadQuestionAttempts={(filters) => void loadQuestionAttempts(filters)}
           />
         ) : null}
         {view === "scoreboard" ? <Scoreboard entries={scoreboard} /> : null}
@@ -318,4 +374,10 @@ export function App() {
 function themeClassFor(role: PactSession["role"], squadNumber?: SquadNumber) {
   if (role !== "learner") return "theme-staff";
   return squadNumber ? `theme-squad-${squadNumber}` : "theme-neutral";
+}
+
+function firstOpenQuestionIndex(content?: PactContent, submittedQuestionIds: string[] = []) {
+  const questions = content?.questions ?? [];
+  const index = questions.findIndex((question) => !submittedQuestionIds.includes(question.id));
+  return index === -1 ? 0 : index;
 }

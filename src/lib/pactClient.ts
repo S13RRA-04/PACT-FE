@@ -1,4 +1,4 @@
-import type { AdminAuditEvent, AdminCohort, AdminUser, ContentProgress, ContentStatus, PactContent, PactSession, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
+import type { AdminAuditEvent, AdminCohort, AdminUser, AnswerValue, ContentProgress, ContentStatus, PactContent, PactSession, QuestionAttempt, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
 
 export class PactClient {
   constructor(private readonly baseUrl: string, private readonly token: string) {}
@@ -36,6 +36,23 @@ export class PactClient {
     }
   }
 
+  async submitQuestionAttempt(contentId: string, questionId: string, input: { answer: AnswerValue; feedbackExposed: boolean }) {
+    try {
+      return await this.request<{ attempt: QuestionAttempt; progress: ContentProgress }>(
+        `/api/v1/content/${encodeURIComponent(contentId)}/questions/${encodeURIComponent(questionId)}/attempts`,
+        {
+          method: "POST",
+          body: JSON.stringify(input)
+        }
+      );
+    } catch (error) {
+      if (error instanceof PactApiError && error.status === 404) {
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
   async getManagedContent() {
     return this.request<PactContent[]>("/api/v1/admin/content");
   }
@@ -50,6 +67,24 @@ export class PactClient {
 
   async getAdminAuditEvents() {
     return this.request<{ events: AdminAuditEvent[] }>("/api/v1/admin/audit-events");
+  }
+
+  async getQuestionAttempts(input: { cohortId?: string; contentId?: string; userId?: string; questionId?: string; limit?: number } = {}) {
+    const params = new URLSearchParams();
+    if (input.cohortId) params.set("cohortId", input.cohortId);
+    if (input.contentId) params.set("contentId", input.contentId);
+    if (input.userId) params.set("userId", input.userId);
+    if (input.questionId) params.set("questionId", input.questionId);
+    if (input.limit) params.set("limit", String(input.limit));
+    const query = params.toString();
+    try {
+      return await this.request<{ attempts: QuestionAttempt[] }>(`/api/v1/admin/analytics/question-attempts${query ? `?${query}` : ""}`);
+    } catch (error) {
+      if (error instanceof PactApiError && error.status === 404) {
+        return { attempts: [] };
+      }
+      throw error;
+    }
   }
 
   async updateContentStatus(contentId: string, status: ContentStatus) {

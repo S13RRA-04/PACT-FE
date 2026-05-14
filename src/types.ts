@@ -172,3 +172,24 @@ export type ContentProgress = {
   submittedAt?: string;
   updatedAt: string;
 };
+
+export type QuestionAttempt = {
+  id: string;
+  userId: string;
+  learnerName?: string;
+  learnerEmail?: string;
+  contentId: string;
+  contentTitle?: string;
+  contentType: ContentType;
+  questionId: string;
+  questionTopic?: string;
+  questionVersion?: number;
+  attemptNumber: number;
+  answer: AnswerValue;
+  score: number;
+  maxScore: number;
+  isCorrect: boolean;
+  feedbackExposed: boolean;
+  feedbackExposedAt?: string;
+  submittedAt: string;
+};

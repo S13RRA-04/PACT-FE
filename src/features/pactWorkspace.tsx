@@ -1,6 +1,7 @@
-import type { AdminAuditEvent, AdminCohort, AnswerState, AnswerValue, ContentFilter, ContentProgress, ContentStatus, ContentType, PactContent, PactQuestion, PactSession, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
+import { useMemo, useState } from "react";
+import type { AdminAuditEvent, AdminCohort, AnswerState, AnswerValue, ContentFilter, ContentProgress, ContentStatus, ContentType, PactContent, PactQuestion, PactSession, QuestionAttempt, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
 import { contentTypeLabel, contextSquadLabel, formatDateTime, roleLabel, text } from "../lib/format";
-import { isRecord, toggle } from "../lib/scoring";
+import { isRecord, scoreQuestion, toggle } from "../lib/scoring";
 
 export function SessionDiagnosticSummary({ diagnostic }: { diagnostic: SessionDiagnostic }) {
   return (
@@ -33,6 +34,8 @@ export function ContentWorkspace({
   selectedContent,
   answers,
   answeredCount,
+  activeQuestionIndex,
+  submittedQuestionIds,
   progressPercent,
   result,
   persistedProgress,
@@ -41,6 +44,8 @@ export function ContentWorkspace({
   onFilterChange,
   onSelectContent,
   onAnswer,
+  onQuestionSelect,
+  onSubmitQuestion,
   onSubmit
 }: {
   content: PactContent[];
@@ -51,6 +56,8 @@ export function ContentWorkspace({
   selectedContent?: PactContent;
   answers: AnswerState;
   answeredCount: number;
+  activeQuestionIndex: number;
+  submittedQuestionIds: string[];
   progressPercent: number;
   result?: { score: number; maxScore: number };
   persistedProgress?: ContentProgress;
@@ -59,6 +66,8 @@ export function ContentWorkspace({
   onFilterChange: (filter: ContentFilter) => void;
   onSelectContent: (id: string) => void;
   onAnswer: (questionId: string, value: AnswerValue) => void;
+  onQuestionSelect: (index: number) => void;
+  onSubmitQuestion: (questionId: string) => void;
   onSubmit: () => void;
 }) {
   return (
@@ -77,10 +86,14 @@ export function ContentWorkspace({
         content={selectedContent}
         answers={answers}
         answeredCount={answeredCount}
+        activeQuestionIndex={activeQuestionIndex}
+        submittedQuestionIds={submittedQuestionIds}
         progressPercent={progressPercent}
         result={result}
         persistedProgress={persistedProgress}
         onAnswer={onAnswer}
+        onQuestionSelect={onQuestionSelect}
+        onSubmitQuestion={onSubmitQuestion}
         onSubmit={onSubmit}
       />
       <ActivityPanel
@@ -147,18 +160,40 @@ function ModuleList({
   );
 }
 
-function ModuleRunner({ content, answers, answeredCount, progressPercent, result, persistedProgress, onAnswer, onSubmit }: {
+function ModuleRunner({
+  content,
+  answers,
+  answeredCount,
+  activeQuestionIndex,
+  submittedQuestionIds,
+  progressPercent,
+  result,
+  persistedProgress,
+  onAnswer,
+  onQuestionSelect,
+  onSubmitQuestion,
+  onSubmit
+}: {
   content?: PactContent;
   answers: AnswerState;
   answeredCount: number;
+  activeQuestionIndex: number;
+  submittedQuestionIds: string[];
   progressPercent: number;
   result?: { score: number; maxScore: number };
   persistedProgress?: ContentProgress;
   onAnswer: (questionId: string, value: AnswerValue) => void;
+  onQuestionSelect: (index: number) => void;
+  onSubmitQuestion: (questionId: string) => void;
   onSubmit: () => void;
 }) {
   if (!content) return <article><Empty text="Sync PACT to load assigned content." /></article>;
   const questions = content.questions ?? [];
+  const activeIndex = questions.length ? Math.min(activeQuestionIndex, questions.length - 1) : 0;
+  const activeQuestion = questions[activeIndex];
+  const activeValue = activeQuestion ? answers[activeQuestion.id] : undefined;
+  const activeSubmitted = activeQuestion ? submittedQuestionIds.includes(activeQuestion.id) : false;
+  const canSubmitContent = questions.length > 0 && answeredCount === questions.length;
 
   return (
     <article className="runner">
@@ -173,45 +208,113 @@ function ModuleRunner({ content, answers, answeredCount, progressPercent, result
       <div className="progress-block" aria-label="Content progress">
         <div>
           <strong>{progressPercent}% complete</strong>
-          <span>{answeredCount}/{questions.length} answered</span>
+          <span>{answeredCount}/{questions.length} submitted</span>
         </div>
         <div className="progress-track"><span style={{ width: `${progressPercent}%` }} /></div>
       </div>
-      {questions.length ? <QuestionStepper questions={questions} answers={answers} /> : null}
-      {questions.length ? questions.map((question, index) => (
-        <QuestionCard key={question.id} index={index + 1} question={question} value={answers[question.id]} onChange={(value) => onAnswer(question.id, value)} />
-      )) : <Empty text="This content does not have questions loaded yet." />}
+      {questions.length ? (
+        <QuestionStepper
+          activeIndex={activeIndex}
+          questions={questions}
+          submittedQuestionIds={submittedQuestionIds}
+          onSelect={onQuestionSelect}
+        />
+      ) : null}
+      {activeQuestion ? (
+        <QuestionCard
+          index={activeIndex + 1}
+          question={activeQuestion}
+          questionCount={questions.length}
+          value={activeValue}
+          isSubmitted={activeSubmitted}
+          canGoPrevious={activeIndex > 0}
+          canGoNext={activeIndex < questions.length - 1}
+          onChange={(value) => onAnswer(activeQuestion.id, value)}
+          onPrevious={() => onQuestionSelect(activeIndex - 1)}
+          onNext={() => onQuestionSelect(activeIndex + 1)}
+          onSubmit={() => onSubmitQuestion(activeQuestion.id)}
+        />
+      ) : <Empty text="This content does not have questions loaded yet." />}
       <div className="submit-row">
-        {result ? <strong>{result.score}/{result.maxScore} submitted</strong> : <span>{persistedProgress?.status === "submitted" ? "Previously submitted" : `${answeredCount}/${questions.length} answered`}</span>}
-        <button type="button" onClick={onSubmit} disabled={!questions.length || answeredCount === 0}>Submit Content</button>
+        {result ? <strong>{result.score}/{result.maxScore} submitted</strong> : <span>{persistedProgress?.status === "submitted" ? "Previously submitted" : `${answeredCount}/${questions.length} questions submitted`}</span>}
+        <button type="button" onClick={onSubmit} disabled={!canSubmitContent}>Submit Content</button>
       </div>
     </article>
   );
 }
 
-function QuestionStepper({ questions, answers }: { questions: PactQuestion[]; answers: AnswerState }) {
+function QuestionStepper({ activeIndex, questions, submittedQuestionIds, onSelect }: {
+  activeIndex: number;
+  questions: PactQuestion[];
+  submittedQuestionIds: string[];
+  onSelect: (index: number) => void;
+}) {
   return (
     <ol className="question-stepper" aria-label="Question progress">
       {questions.map((question, index) => (
-        <li className={answers[question.id] !== undefined ? "complete" : ""} key={question.id}>
-          <span>{index + 1}</span>
+        <li className={`${submittedQuestionIds.includes(question.id) ? "complete" : ""} ${index === activeIndex ? "active" : ""}`} key={question.id}>
+          <button type="button" onClick={() => onSelect(index)} aria-label={`Question ${index + 1}`}>
+            {index + 1}
+          </button>
         </li>
       ))}
     </ol>
   );
 }
 
-function QuestionCard({ index, question, value, onChange }: { index: number; question: PactQuestion; value?: AnswerValue; onChange: (value: AnswerValue) => void }) {
-  const isAnswered = value !== undefined;
+function QuestionCard({
+  index,
+  question,
+  questionCount,
+  value,
+  isSubmitted,
+  canGoPrevious,
+  canGoNext,
+  onChange,
+  onPrevious,
+  onNext,
+  onSubmit
+}: {
+  index: number;
+  question: PactQuestion;
+  questionCount: number;
+  value?: AnswerValue;
+  isSubmitted: boolean;
+  canGoPrevious: boolean;
+  canGoNext: boolean;
+  onChange: (value: AnswerValue) => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onSubmit: () => void;
+}) {
+  const hasAnswer = hasAnswerValue(value);
+  const earnedPoints = scoreQuestion(question, value);
+  const isCorrect = earnedPoints >= question.scoring.points;
+  const feedback = isSubmitted
+    ? isCorrect
+      ? text(question.feedback.correct) || "Correct. This response earned full credit."
+      : text(question.feedback.incorrect) || "Review this response before moving on."
+    : undefined;
   return (
-    <section className={`question ${isAnswered ? "answered" : ""}`}>
+    <section className={`question ${isSubmitted ? "answered" : ""}`}>
       <header>
         <div><span>Question {index}</span><small>{question.topic}</small></div>
-        <small>{question.scoring.points} pts | {question.scoring.difficulty}</small>
+        <small>{index}/{questionCount} | {question.scoring.points} pts | {question.scoring.difficulty}</small>
       </header>
       <p>{text(question.stem)}</p>
       <QuestionInput question={question} value={value} onChange={onChange} />
-      {isAnswered ? <div className="answer-state">Response saved to PACT progress</div> : null}
+      {isSubmitted ? (
+        <div className={`answer-feedback ${isCorrect ? "correct" : "incorrect"}`} role="status">
+          <strong>{earnedPoints}/{question.scoring.points} points</strong>
+          <span>{feedback}</span>
+          {question.feedback.reference ? <small>Reference: {question.feedback.reference}</small> : null}
+        </div>
+      ) : null}
+      <div className="question-actions">
+        <button type="button" className="secondary-button" onClick={onPrevious} disabled={!canGoPrevious}>Previous</button>
+        <button type="button" onClick={onSubmit} disabled={!hasAnswer}>Submit Question</button>
+        <button type="button" className="secondary-button" onClick={onNext} disabled={!canGoNext}>Next</button>
+      </div>
     </section>
   );
 }
@@ -342,22 +445,26 @@ export function ControlPlane({
   content,
   cohorts,
   auditEvents,
+  questionAttempts,
   diagnostic,
   canAdmin,
   onUpdateStatus,
   onAssignContent,
   onUpdateLmsLabel,
-  onAssignSquad
+  onAssignSquad,
+  onLoadQuestionAttempts
 }: {
   content: PactContent[];
   cohorts: AdminCohort[];
   auditEvents: AdminAuditEvent[];
+  questionAttempts: QuestionAttempt[];
   diagnostic?: SessionDiagnostic;
   canAdmin: boolean;
   onUpdateStatus: (id: string, status: ContentStatus) => void;
   onAssignContent: (id: string, cohortId: string | null) => void;
   onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
   onAssignSquad: (userId: string, squadNumber: SquadNumber) => void;
+  onLoadQuestionAttempts: (filters: { cohortId?: string; contentId?: string; userId?: string; questionId?: string }) => void;
 }) {
   return (
     <section className="control-plane">
@@ -366,8 +473,140 @@ export function ControlPlane({
         {diagnostic ? <SessionDiagnosticSummary diagnostic={diagnostic} /> : null}
       </article>
       <ContentDeliveryManager content={content} cohorts={cohorts} onUpdateStatus={onUpdateStatus} onAssignContent={onAssignContent} onUpdateLmsLabel={onUpdateLmsLabel} />
+      <AttemptReviewPanel content={content} cohorts={cohorts} attempts={questionAttempts} onLoad={onLoadQuestionAttempts} />
       <AdminConsole cohorts={cohorts} auditEvents={canAdmin ? auditEvents : []} onAssign={onAssignSquad} showAudit={canAdmin} />
     </section>
+  );
+}
+
+type AttemptCorrectnessFilter = "all" | "correct" | "incorrect";
+type AttemptRetryFilter = "all" | "first" | "retry";
+
+function AttemptReviewPanel({
+  content,
+  cohorts,
+  attempts,
+  onLoad
+}: {
+  content: PactContent[];
+  cohorts: AdminCohort[];
+  attempts: QuestionAttempt[];
+  onLoad: (filters: { cohortId?: string; contentId?: string; userId?: string; questionId?: string }) => void;
+}) {
+  const cohortOptions = useMemo(() => cohorts.map((cohort) => cohort.cohortId).sort(), [cohorts]);
+  const learnerOptions = useMemo(
+    () => cohorts.flatMap((cohort) => cohort.users.filter((user) => user.role === "learner").map((user) => ({ ...user, cohortId: cohort.cohortId }))),
+    [cohorts]
+  );
+  const questionOptions = useMemo(
+    () => content.flatMap((item) => (item.questions ?? []).map((question) => ({
+      contentId: item.id,
+      id: question.id,
+      label: `${item.title} - ${question.topic || question.id}`
+    }))),
+    [content]
+  );
+  const [cohortId, setCohortId] = useState(cohortOptions[0] ?? "");
+  const [contentId, setContentId] = useState("");
+  const [userId, setUserId] = useState("");
+  const [questionId, setQuestionId] = useState("");
+  const [correctness, setCorrectness] = useState<AttemptCorrectnessFilter>("all");
+  const [retry, setRetry] = useState<AttemptRetryFilter>("all");
+  const visibleQuestions = questionOptions.filter((question) => !contentId || question.contentId === contentId);
+  const filteredAttempts = attempts.filter((attempt) => {
+    if (correctness === "correct" && !attempt.isCorrect) return false;
+    if (correctness === "incorrect" && attempt.isCorrect) return false;
+    if (retry === "first" && attempt.attemptNumber !== 1) return false;
+    if (retry === "retry" && attempt.attemptNumber <= 1) return false;
+    return true;
+  });
+
+  function applyFilters() {
+    onLoad({
+      cohortId: cohortId || undefined,
+      contentId: contentId || undefined,
+      userId: userId || undefined,
+      questionId: questionId || undefined
+    });
+  }
+
+  return (
+    <article className="attempt-review">
+      <header className="section-head">
+        <div>
+          <h2>Question Attempt Review</h2>
+          <p>Review retries, correctness, timestamps, and feedback exposure by learner.</p>
+        </div>
+        <button type="button" onClick={applyFilters}>Apply Filters</button>
+      </header>
+      <div className="attempt-filters" aria-label="Attempt review filters">
+        <label className="inline-select">
+          <span>Cohort</span>
+          <select value={cohortId} onChange={(event) => setCohortId(event.target.value)}>
+            <option value="">Current cohort</option>
+            {cohortOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Learner</span>
+          <select value={userId} onChange={(event) => setUserId(event.target.value)}>
+            <option value="">All learners</option>
+            {learnerOptions.map((learner) => <option key={learner.id} value={learner.id}>{learner.name ?? learner.email ?? learner.id}</option>)}
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Content</span>
+          <select value={contentId} onChange={(event) => { setContentId(event.target.value); setQuestionId(""); }}>
+            <option value="">All content</option>
+            {content.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Question</span>
+          <select value={questionId} onChange={(event) => setQuestionId(event.target.value)}>
+            <option value="">All questions</option>
+            {visibleQuestions.map((question) => <option key={`${question.contentId}-${question.id}`} value={question.id}>{question.label}</option>)}
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Correctness</span>
+          <select value={correctness} onChange={(event) => setCorrectness(event.target.value as AttemptCorrectnessFilter)}>
+            <option value="all">All results</option>
+            <option value="correct">Correct only</option>
+            <option value="incorrect">Incorrect only</option>
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Retry count</span>
+          <select value={retry} onChange={(event) => setRetry(event.target.value as AttemptRetryFilter)}>
+            <option value="all">All attempts</option>
+            <option value="first">First attempts</option>
+            <option value="retry">Retries only</option>
+          </select>
+        </label>
+      </div>
+      <div className="attempt-summary" aria-label="Attempt review summary">
+        <div><span>Showing</span><strong>{filteredAttempts.length}</strong></div>
+        <div><span>Correct</span><strong>{filteredAttempts.filter((attempt) => attempt.isCorrect).length}</strong></div>
+        <div><span>Retries</span><strong>{filteredAttempts.filter((attempt) => attempt.attemptNumber > 1).length}</strong></div>
+        <div><span>Feedback seen</span><strong>{filteredAttempts.filter((attempt) => attempt.feedbackExposed).length}</strong></div>
+      </div>
+      <div className="attempt-list">
+        {filteredAttempts.length ? filteredAttempts.map((attempt) => (
+          <section className="attempt-row" key={attempt.id}>
+            <div>
+              <strong>{attempt.learnerName ?? attempt.learnerEmail ?? attempt.userId}</strong>
+              <small>{attempt.contentTitle ?? attempt.contentId} | {attempt.questionTopic ?? attempt.questionId}</small>
+            </div>
+            <span className={`status ${attempt.isCorrect ? "published" : "draft"}`}>{attempt.isCorrect ? "correct" : "incorrect"}</span>
+            <div><span>Attempt</span><strong>{attempt.attemptNumber}</strong></div>
+            <div><span>Score</span><strong>{attempt.score}/{attempt.maxScore}</strong></div>
+            <div><span>Feedback</span><strong>{attempt.feedbackExposed ? "Shown" : "Hidden"}</strong></div>
+            <time dateTime={attempt.submittedAt}>{formatDateTime(attempt.submittedAt)}</time>
+          </section>
+        )) : <Empty text="No question attempts match the current filters." />}
+      </div>
+    </article>
   );
 }
 
@@ -457,6 +696,14 @@ export function Scoreboard({ entries }: { entries: ScoreboardEntry[] }) {
 
 function Empty({ text: message }: { text: string }) {
   return <div className="empty">{message}</div>;
+}
+
+function hasAnswerValue(value?: AnswerValue) {
+  if (value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "boolean") return true;
+  return Object.values(value).some((item) => item.trim().length > 0);
 }
 
 function emptyContentMessage(session?: PactSession) {

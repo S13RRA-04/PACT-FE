@@ -76,10 +76,14 @@ test("learner content workspace restores and saves backend progress", async ({ p
 
   await expect(page.getByRole("heading", { name: "Incident Triage Fundamentals", level: 2 })).toBeVisible();
   await expect(page.getByText("33% complete")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Impossible travel, MFA result, and device history" })).toHaveClass(/selected/);
+  await expect(page.getByText("A containment action should be documented before closing the incident.")).toBeVisible();
+  await expect(page.getByText("Enter the artifact label used for endpoint timeline evidence.")).toBeHidden();
 
   await page.getByRole("button", { name: "True" }).click();
-  await expect(page.locator(".status-line")).toHaveText("Progress saved.");
+  await page.getByRole("button", { name: "Submit Question" }).click();
+  await expect(page.locator(".status-line")).toHaveText("Question submitted. Feedback is available.");
+  await expect(page.getByText("5/5 points")).toBeVisible();
+  await expect(page.getByText("Correct. This response earned full credit.")).toBeVisible();
   await expect(page.getByText("67% complete")).toBeVisible();
 
   await expect(page).toHaveScreenshot("pact-content-workspace.png", { fullPage: true });
@@ -105,20 +109,41 @@ async function mockPactApi(page: Page) {
     if (url.pathname === "/api/v1/session") return route.fulfill({ json: session });
     if (url.pathname === "/api/v1/content") return route.fulfill({ json: content });
     if (url.pathname === "/api/v1/content/progress") return route.fulfill({ json: { progress } });
-    if (url.pathname === "/api/v1/content/module-1/progress" && route.request().method() === "PATCH") {
+    if (url.pathname === "/api/v1/content/module-1/questions/q2/attempts" && route.request().method() === "POST") {
       const body = route.request().postDataJSON();
+      expect(body).toEqual({ answer: true, feedbackExposed: true });
       progress = [{
         id: "progress-1",
         userId: "learner-3",
         contentId: "module-1",
         contentType: "module",
-        answers: body.answers,
-        answeredQuestionIds: Object.keys(body.answers),
-        progressPercent: body.progressPercent,
+        answers: { q1: "b", q2: body.answer },
+        answeredQuestionIds: ["q1", "q2"],
+        progressPercent: 67,
         status: "in_progress",
         updatedAt: "2026-05-14T12:01:00.000Z"
       }];
-      return route.fulfill({ json: progress[0] });
+      return route.fulfill({
+        status: 201,
+        json: {
+          attempt: {
+            id: "attempt-1",
+            userId: "learner-3",
+            contentId: "module-1",
+            contentType: "module",
+            questionId: "q2",
+            attemptNumber: 1,
+            answer: true,
+            score: 5,
+            maxScore: 5,
+            isCorrect: true,
+            feedbackExposed: true,
+            feedbackExposedAt: "2026-05-14T12:01:00.000Z",
+            submittedAt: "2026-05-14T12:01:00.000Z"
+          },
+          progress: progress[0]
+        }
+      });
     }
     if (url.pathname === "/api/v1/dashboard/scoreboard") return route.fulfill({ json: scoreboard });
     if (url.pathname === "/api/v1/scores") return route.fulfill({ status: 201, json: { ok: true } });

@@ -95,6 +95,30 @@ describe("PACT admin console", () => {
           ]
         });
       }
+      if (path === "/api/v1/admin/analytics/question-attempts") {
+        return jsonResponse({
+          attempts: [
+            {
+              id: "attempt-1",
+              userId: "learner-1",
+              learnerName: "Learner One",
+              contentId: "content-1",
+              contentTitle: "Day 1 Lecture 1",
+              contentType: "module",
+              questionId: "q1",
+              questionTopic: "Threat landscape",
+              attemptNumber: 2,
+              answer: "b",
+              score: 5,
+              maxScore: 5,
+              isCorrect: true,
+              feedbackExposed: true,
+              feedbackExposedAt: "2026-05-14T12:01:00.000Z",
+              submittedAt: "2026-05-14T12:01:00.000Z"
+            }
+          ]
+        });
+      }
       if (path === "/api/v1/admin/users/learner-1/squad" && init?.method === "PATCH") {
         expect(JSON.parse(String(init.body))).toEqual({ squadNumber: "3" });
         return jsonResponse({
@@ -124,6 +148,9 @@ describe("PACT admin console", () => {
     expect(screen.getAllByText("Module").length).toBeGreaterThan(0);
     expect(screen.getAllByText("course-a/global Module published: 8").length).toBeGreaterThan(0);
     expect(await screen.findByRole("heading", { name: "Assignment History" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Question Attempt Review" })).toBeInTheDocument();
+    expect(screen.getByText(/Threat landscape/)).toBeInTheDocument();
+    expect(screen.getByText("Retries")).toBeInTheDocument();
     expect(screen.getByText("Grey - Instructor")).toBeInTheDocument();
     const learnerRow = screen.getAllByText("Learner One")
       .map((element) => element.closest(".admin-user-row"))
