@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import pactLogo from "./assets/pact-logo.svg";
+import pactLogo from "./assets/pact-logo-display.png";
 
 type PactRole = "admin" | "instructor" | "learner";
 type SquadNumber = "1" | "2" | "3" | "4";
@@ -48,6 +48,21 @@ type AdminCohort = {
   cohortId: string;
   squads: AdminSquad[];
   users: AdminUser[];
+};
+
+type AdminAuditEvent = {
+  id: string;
+  action: "squad.assignment.changed";
+  actorUserId: string;
+  actorName?: string;
+  targetUserId: string;
+  targetName?: string;
+  courseId: string;
+  cohortId: string;
+  previousSquadId?: string;
+  nextSquadId: string;
+  nextSquadNumber?: SquadNumber;
+  createdAt: string;
 };
 
 type SessionDiagnostic = {
@@ -152,6 +167,7 @@ export function App() {
   const [content, setContent] = useState<PactContent[]>([]);
   const [managedContent, setManagedContent] = useState<PactContent[]>([]);
   const [adminCohorts, setAdminCohorts] = useState<AdminCohort[]>([]);
+  const [adminAuditEvents, setAdminAuditEvents] = useState<AdminAuditEvent[]>([]);
   const [selectedContentId, setSelectedContentId] = useState<string | undefined>();
   const [answers, setAnswers] = useState<AnswerState>({});
   const [result, setResult] = useState<{ score: number; maxScore: number } | undefined>();
@@ -199,16 +215,18 @@ export function App() {
       setSelectedContentId((current) => current ?? contentResponse[0]?.id);
       const canManageSession = sessionResponse.role === "admin" || sessionResponse.role === "instructor";
       const canAdminSession = sessionResponse.role === "admin";
-      const [managedResponse, diagnosticResponse, adminResponse] = canManageSession
+      const [managedResponse, diagnosticResponse, adminResponse, auditResponse] = canManageSession
         ? await Promise.all([
             pactClient.getManagedContent(),
             pactClient.getSessionDiagnostic(),
-            canAdminSession ? pactClient.getAdminCohorts() : Promise.resolve({ cohorts: [] })
+            canAdminSession ? pactClient.getAdminCohorts() : Promise.resolve({ cohorts: [] }),
+            canAdminSession ? pactClient.getAdminAuditEvents() : Promise.resolve({ events: [] })
           ])
-        : [[], undefined, { cohorts: [] }];
+        : [[], undefined, { cohorts: [] }, { events: [] }];
       setManagedContent(managedResponse);
       setDiagnostic(diagnosticResponse);
       setAdminCohorts(adminResponse.cohorts);
+      setAdminAuditEvents(auditResponse.events);
       setStatus("PACT content synced from Mongo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to sync PACT content.");
@@ -233,8 +251,14 @@ export function App() {
   async function assignSquad(userId: string, squadNumber: SquadNumber) {
     try {
       await client.assignUserSquad(userId, squadNumber);
-      setAdminCohorts((await client.getAdminCohorts()).cohorts);
-      setScoreboard((await client.getScoreboard()).entries);
+      const [cohortResponse, auditResponse, scoreboardResponse] = await Promise.all([
+        client.getAdminCohorts(),
+        client.getAdminAuditEvents(),
+        client.getScoreboard()
+      ]);
+      setAdminCohorts(cohortResponse.cohorts);
+      setAdminAuditEvents(auditResponse.events);
+      setScoreboard(scoreboardResponse.entries);
       setStatus(`Learner assigned to Squad ${squadNumber}.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to assign learner squad.");
@@ -300,6 +324,7 @@ export function App() {
             <button type="button" onClick={() => void saveSession()}>Save</button>
           </div>
           <p>{session ? `${session.role} session for ${session.courseId}/${session.cohortId}` : status}</p>
+          {session ? <p className="status-line">{status}</p> : null}
           {diagnostic ? <SessionDiagnosticSummary diagnostic={diagnostic} /> : null}
         </section>
 
@@ -321,7 +346,7 @@ export function App() {
         ) : null}
 
         {view === "manage" && canManage ? <GateManager content={managedContent} onUpdate={(id, nextStatus) => void updateGate(id, nextStatus)} /> : null}
-        {view === "admin" && canAdmin ? <AdminConsole cohorts={adminCohorts} onAssign={(userId, squadNumber) => void assignSquad(userId, squadNumber)} /> : null}
+        {view === "admin" && canAdmin ? <AdminConsole cohorts={adminCohorts} auditEvents={adminAuditEvents} onAssign={(userId, squadNumber) => void assignSquad(userId, squadNumber)} /> : null}
         {view === "scoreboard" ? <Scoreboard entries={scoreboard} /> : null}
       </section>
     </main>
@@ -497,7 +522,7 @@ function GateManager({ content, onUpdate }: { content: PactContent[]; onUpdate: 
   );
 }
 
-function AdminConsole({ cohorts, onAssign }: { cohorts: AdminCohort[]; onAssign: (userId: string, squadNumber: SquadNumber) => void }) {
+function AdminConsole({ cohorts, auditEvents, onAssign }: { cohorts: AdminCohort[]; auditEvents: AdminAuditEvent[]; onAssign: (userId: string, squadNumber: SquadNumber) => void }) {
   return (
     <article className="admin-console">
       <h2>Administrator Console</h2>
@@ -547,6 +572,26 @@ function AdminConsole({ cohorts, onAssign }: { cohorts: AdminCohort[]; onAssign:
           </section>
         )) : <Empty text="No cohorts or enrolled users are available for this admin session." />}
       </div>
+      <section className="audit-panel">
+        <header>
+          <h3>Assignment History</h3>
+          <small>{auditEvents.length} recent changes</small>
+        </header>
+        <div className="audit-list">
+          {auditEvents.length ? auditEvents.map((event) => (
+            <div className="audit-row" key={event.id}>
+              <div>
+                <strong>{event.targetName ?? event.targetUserId}</strong>
+                <small>{event.cohortId} - assigned to {event.nextSquadNumber ? `Squad ${event.nextSquadNumber}` : event.nextSquadId}</small>
+              </div>
+              <div>
+                <span>{event.actorName ?? event.actorUserId}</span>
+                <time dateTime={event.createdAt}>{formatDateTime(event.createdAt)}</time>
+              </div>
+            </div>
+          )) : <Empty text="No squad assignment changes have been recorded yet." />}
+        </div>
+      </section>
     </article>
   );
 }
@@ -614,6 +659,13 @@ function themeClassFor(role: PactRole, squadNumber?: SquadNumber) {
   return squadNumber ? `theme-squad-${squadNumber}` : "theme-neutral";
 }
 
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
 function toggle(selected: string[], optionId: string) {
   return selected.includes(optionId) ? selected.filter((id) => id !== optionId) : [...selected, optionId];
 }
@@ -647,6 +699,10 @@ class PactClient {
 
   async getAdminCohorts() {
     return this.request<{ cohorts: AdminCohort[] }>("/api/v1/admin/cohorts");
+  }
+
+  async getAdminAuditEvents() {
+    return this.request<{ events: AdminAuditEvent[] }>("/api/v1/admin/audit-events");
   }
 
   async updateContentStatus(contentId: string, status: ContentStatus) {
