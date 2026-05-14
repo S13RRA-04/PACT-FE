@@ -1,4 +1,7 @@
 :root {
+  --accent: #1f6f5b;
+  --accent-soft: #dff4eb;
+  --accent-dark: #10201c;
   color: #18231f;
   background: #f3f6f2;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -21,7 +24,7 @@ select {
 button {
   border: 0;
   border-radius: 8px;
-  background: #1f6f5b;
+  background: var(--accent);
   color: #fff;
   cursor: pointer;
   font-weight: 700;
@@ -51,9 +54,39 @@ h1 {
 }
 
 .side {
-  background: #10201c;
+  background: var(--accent-dark);
   color: #f7faf7;
   padding: 1.5rem;
+}
+
+.theme-squad-1 {
+  --accent: #bd2b2b;
+  --accent-soft: #f8dddd;
+  --accent-dark: #351313;
+}
+
+.theme-squad-2 {
+  --accent: #96700d;
+  --accent-soft: #fff0b8;
+  --accent-dark: #31240a;
+}
+
+.theme-squad-3 {
+  --accent: #257a3f;
+  --accent-soft: #dff3e4;
+  --accent-dark: #102719;
+}
+
+.theme-squad-4 {
+  --accent: #285ea8;
+  --accent-soft: #dce9fb;
+  --accent-dark: #11243e;
+}
+
+.theme-staff {
+  --accent: #65717b;
+  --accent-soft: #e8edf0;
+  --accent-dark: #1f252a;
 }
 
 .brand {
@@ -64,8 +97,15 @@ h1 {
   padding-bottom: 1.5rem;
 }
 
+.brand img {
+  aspect-ratio: 1;
+  margin-bottom: 0.5rem;
+  max-width: 132px;
+  width: 64%;
+}
+
 .brand span {
-  color: #7fd2b2;
+  color: #f4f8f7;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -87,7 +127,7 @@ nav button {
 }
 
 nav button.active {
-  background: #24483f;
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .workspace {
@@ -101,6 +141,18 @@ nav button.active {
   display: flex;
   gap: 1rem;
   justify-content: space-between;
+}
+
+.role-chip,
+.staff-pill {
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent), #fff 50%);
+  border-radius: 999px;
+  color: var(--accent-dark);
+  font-size: 0.84rem;
+  font-weight: 800;
+  padding: 0.45rem 0.7rem;
+  white-space: nowrap;
 }
 
 .topbar p,
@@ -199,8 +251,8 @@ select {
 }
 
 .module-row.selected {
-  border-color: #1f6f5b;
-  box-shadow: inset 4px 0 0 #1f6f5b;
+  border-color: var(--accent);
+  box-shadow: inset 4px 0 0 var(--accent);
 }
 
 .module-row span,
@@ -244,7 +296,7 @@ select {
 }
 
 .question header span {
-  color: #1f6f5b;
+  color: var(--accent);
   font-size: 0.82rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -272,8 +324,8 @@ select {
 }
 
 .choice-grid button.selected {
-  background: #dff4eb;
-  border-color: #1f6f5b;
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .blank-grid,
@@ -338,6 +390,112 @@ select {
   background: #e9edf0;
 }
 
+.admin-console {
+  display: grid;
+  gap: 1rem;
+}
+
+.cohort-list,
+.admin-user-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.cohort-panel {
+  border: 1px solid #e5ece8;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.cohort-panel header,
+.admin-user-row {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.cohort-panel header span,
+.cohort-panel header small,
+.admin-user-row small {
+  color: #60716b;
+  font-size: 0.84rem;
+}
+
+.cohort-panel h3 {
+  margin: 0.2rem 0 0;
+}
+
+.squad-strip,
+.squad-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.squad-pill,
+.score-squad {
+  border-radius: 999px;
+  color: #17201d;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 0.4rem 0.6rem;
+}
+
+.squad-pill {
+  display: inline-flex;
+  gap: 0.45rem;
+}
+
+.squad-button {
+  align-items: center;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  display: inline-flex;
+  height: 2.25rem;
+  justify-content: center;
+  padding: 0;
+  width: 2.25rem;
+}
+
+.squad-button.selected {
+  border-color: #17201d;
+}
+
+.squad-1 {
+  background: #f3d2d2;
+  color: #7b1717;
+}
+
+.squad-2 {
+  background: #ffe89a;
+  color: #5f4400;
+}
+
+.squad-3 {
+  background: #cfecd7;
+  color: #165629;
+}
+
+.squad-4 {
+  background: #d4e5fb;
+  color: #153f79;
+}
+
+.admin-user-row {
+  border: 1px solid #e5ece8;
+  border-radius: 8px;
+  padding: 0.85rem;
+}
+
+.admin-user-row > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
 .empty {
   border: 1px dashed #b9c8c1;
   border-radius: 8px;
@@ -362,6 +520,8 @@ select {
 
   .topbar,
   .runner-head,
+  .cohort-panel header,
+  .admin-user-row,
   .session-panel div {
     align-items: stretch;
     flex-direction: column;

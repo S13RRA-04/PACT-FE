@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import pactLogo from "./assets/pact-logo.svg";
 
 type PactRole = "admin" | "instructor" | "learner";
+type SquadNumber = "1" | "2" | "3" | "4";
 type ContentType = "module" | "challenge" | "game" | "assessment";
 type ContentStatus = "draft" | "published" | "archived";
 type QuestionKind = "multiple_choice" | "true_false" | "fill_blank" | "drag_match";
@@ -11,6 +13,7 @@ type PactSession = {
   courseId: string;
   cohortId: string;
   squadId?: string;
+  squadNumber?: SquadNumber;
 };
 
 type ScoreboardEntry = {
@@ -18,9 +21,33 @@ type ScoreboardEntry = {
   name?: string;
   role: string;
   squadId?: string;
+  squadNumber?: SquadNumber;
   totalScore: number;
   maxScore: number;
   progressPercent: number;
+};
+
+type AdminUser = {
+  id: string;
+  email?: string;
+  name?: string;
+  role: PactRole;
+  cohortId: string;
+  squadId?: string;
+  squadNumber?: SquadNumber;
+};
+
+type AdminSquad = {
+  id: string;
+  name: string;
+  number?: SquadNumber;
+};
+
+type AdminCohort = {
+  courseId: string;
+  cohortId: string;
+  squads: AdminSquad[];
+  users: AdminUser[];
 };
 
 type SessionDiagnostic = {
@@ -98,7 +125,7 @@ type PactContent = {
 
 type AnswerValue = string | string[] | Record<string, string> | boolean;
 type AnswerState = Record<string, AnswerValue>;
-type View = "modules" | "manage" | "scoreboard";
+type View = "modules" | "admin" | "manage" | "scoreboard";
 
 const apiBaseUrl = requireApiBaseUrl();
 
@@ -124,6 +151,7 @@ export function App() {
   const [diagnostic, setDiagnostic] = useState<SessionDiagnostic | undefined>();
   const [content, setContent] = useState<PactContent[]>([]);
   const [managedContent, setManagedContent] = useState<PactContent[]>([]);
+  const [adminCohorts, setAdminCohorts] = useState<AdminCohort[]>([]);
   const [selectedContentId, setSelectedContentId] = useState<string | undefined>();
   const [answers, setAnswers] = useState<AnswerState>({});
   const [result, setResult] = useState<{ score: number; maxScore: number } | undefined>();
@@ -131,9 +159,11 @@ export function App() {
   const [status, setStatus] = useState("Connect with an LMS launch session token.");
   const isConnected = sessionToken.trim().length > 0;
   const canManage = session?.role === "admin" || session?.role === "instructor";
+  const canAdmin = session?.role === "admin";
 
   const client = useMemo(() => new PactClient(apiBaseUrl, sessionToken), [sessionToken]);
   const selectedContent = content.find((item) => item.id === selectedContentId) ?? content[0];
+  const themeClass = session ? themeClassFor(session.role, session.squadNumber) : "theme-neutral";
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -168,11 +198,17 @@ export function App() {
       setScoreboard(scoreboardResponse.entries);
       setSelectedContentId((current) => current ?? contentResponse[0]?.id);
       const canManageSession = sessionResponse.role === "admin" || sessionResponse.role === "instructor";
-      const [managedResponse, diagnosticResponse] = canManageSession
-        ? await Promise.all([pactClient.getManagedContent(), pactClient.getSessionDiagnostic()])
-        : [[], undefined];
+      const canAdminSession = sessionResponse.role === "admin";
+      const [managedResponse, diagnosticResponse, adminResponse] = canManageSession
+        ? await Promise.all([
+            pactClient.getManagedContent(),
+            pactClient.getSessionDiagnostic(),
+            canAdminSession ? pactClient.getAdminCohorts() : Promise.resolve({ cohorts: [] })
+          ])
+        : [[], undefined, { cohorts: [] }];
       setManagedContent(managedResponse);
       setDiagnostic(diagnosticResponse);
+      setAdminCohorts(adminResponse.cohorts);
       setStatus("PACT content synced from Mongo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to sync PACT content.");
@@ -191,6 +227,17 @@ export function App() {
       setStatus(`Content set to ${nextStatus}.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to update content gate.");
+    }
+  }
+
+  async function assignSquad(userId: string, squadNumber: SquadNumber) {
+    try {
+      await client.assignUserSquad(userId, squadNumber);
+      setAdminCohorts((await client.getAdminCohorts()).cohorts);
+      setScoreboard((await client.getScoreboard()).entries);
+      setStatus(`Learner assigned to Squad ${squadNumber}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to assign learner squad.");
     }
   }
 
@@ -216,14 +263,16 @@ export function App() {
   }
 
   return (
-    <main className="shell">
+    <main className={`shell ${themeClass}`}>
       <aside className="side">
         <div className="brand">
+          <img src={pactLogo} alt="PACT Cyber Education and Training Unit" />
           <span>PACT</span>
-          <strong>Content Hub</strong>
+          <strong>Training Hub</strong>
         </div>
         <nav>
           <button className={view === "modules" ? "active" : ""} type="button" onClick={() => setView("modules")}>Content</button>
+          {canAdmin ? <button className={view === "admin" ? "active" : ""} type="button" onClick={() => setView("admin")}>Admin</button> : null}
           {canManage ? <button className={view === "manage" ? "active" : ""} type="button" onClick={() => setView("manage")}>Gate</button> : null}
           <button className={view === "scoreboard" ? "active" : ""} type="button" onClick={() => setView("scoreboard")}>Scoreboard</button>
         </nav>
@@ -235,6 +284,7 @@ export function App() {
             <h1>PACT Content</h1>
             <p>Mongo-backed learning content, instructor-controlled availability, and score sync.</p>
           </div>
+          {session ? <span className="role-chip">{session.role === "learner" && session.squadNumber ? `Squad ${session.squadNumber}` : roleLabel(session.role)}</span> : null}
           <button type="button" onClick={() => void loadDashboard()} disabled={!isConnected}>Sync</button>
         </header>
 
@@ -271,6 +321,7 @@ export function App() {
         ) : null}
 
         {view === "manage" && canManage ? <GateManager content={managedContent} onUpdate={(id, nextStatus) => void updateGate(id, nextStatus)} /> : null}
+        {view === "admin" && canAdmin ? <AdminConsole cohorts={adminCohorts} onAssign={(userId, squadNumber) => void assignSquad(userId, squadNumber)} /> : null}
         {view === "scoreboard" ? <Scoreboard entries={scoreboard} /> : null}
       </section>
     </main>
@@ -446,6 +497,60 @@ function GateManager({ content, onUpdate }: { content: PactContent[]; onUpdate: 
   );
 }
 
+function AdminConsole({ cohorts, onAssign }: { cohorts: AdminCohort[]; onAssign: (userId: string, squadNumber: SquadNumber) => void }) {
+  return (
+    <article className="admin-console">
+      <h2>Administrator Console</h2>
+      <div className="cohort-list">
+        {cohorts.length ? cohorts.map((cohort) => (
+          <section className="cohort-panel" key={cohort.cohortId}>
+            <header>
+              <div>
+                <span>{cohort.courseId}</span>
+                <h3>{cohort.cohortId}</h3>
+              </div>
+              <small>{cohort.users.length} enrolled</small>
+            </header>
+            <div className="squad-strip" aria-label={`${cohort.cohortId} squads`}>
+              {(["1", "2", "3", "4"] as SquadNumber[]).map((number) => (
+                <span className={`squad-pill squad-${number}`} key={number}>
+                  Squad {number}
+                  <strong>{cohort.users.filter((user) => user.squadNumber === number).length}</strong>
+                </span>
+              ))}
+            </div>
+            <div className="admin-user-list">
+              {cohort.users.map((user) => (
+                <div className="admin-user-row" key={user.id}>
+                  <div>
+                    <strong>{user.name ?? user.email ?? user.id}</strong>
+                    <small>{roleLabel(user.role)}{user.email ? ` - ${user.email}` : ""}</small>
+                  </div>
+                  {user.role === "learner" ? (
+                    <div className="squad-actions" aria-label={`Assign ${user.name ?? user.id} to squad`}>
+                      {(["1", "2", "3", "4"] as SquadNumber[]).map((number) => (
+                        <button
+                          className={`squad-button squad-${number} ${user.squadNumber === number ? "selected" : ""}`}
+                          key={number}
+                          type="button"
+                          onClick={() => onAssign(user.id, number)}
+                          disabled={user.squadNumber === number}
+                        >
+                          {number}
+                        </button>
+                      ))}
+                    </div>
+                  ) : <span className="staff-pill">Grey</span>}
+                </div>
+              ))}
+            </div>
+          </section>
+        )) : <Empty text="No cohorts or enrolled users are available for this admin session." />}
+      </div>
+    </article>
+  );
+}
+
 function Scoreboard({ entries }: { entries: ScoreboardEntry[] }) {
   return (
     <article>
@@ -453,7 +558,7 @@ function Scoreboard({ entries }: { entries: ScoreboardEntry[] }) {
       <div className="list">
         {entries.length ? entries.map((entry) => (
           <div className="row" key={entry.userId}>
-            <span>{entry.squadId ?? "solo"}</span>
+            <span className={entry.squadNumber ? `score-squad squad-${entry.squadNumber}` : ""}>{entry.squadNumber ? `Squad ${entry.squadNumber}` : "solo"}</span>
             <strong>{entry.name ?? entry.userId}</strong>
             <small>{entry.totalScore}/{entry.maxScore} - {entry.progressPercent}%</small>
           </div>
@@ -500,6 +605,15 @@ function contentTypeLabel(type: ContentType) {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
+function roleLabel(role: PactRole | string) {
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+function themeClassFor(role: PactRole, squadNumber?: SquadNumber) {
+  if (role !== "learner") return "theme-staff";
+  return squadNumber ? `theme-squad-${squadNumber}` : "theme-neutral";
+}
+
 function toggle(selected: string[], optionId: string) {
   return selected.includes(optionId) ? selected.filter((id) => id !== optionId) : [...selected, optionId];
 }
@@ -531,10 +645,21 @@ class PactClient {
     return this.request<SessionDiagnostic>("/api/v1/admin/diagnostics/session");
   }
 
+  async getAdminCohorts() {
+    return this.request<{ cohorts: AdminCohort[] }>("/api/v1/admin/cohorts");
+  }
+
   async updateContentStatus(contentId: string, status: ContentStatus) {
     return this.request<PactContent>(`/api/v1/admin/content/${encodeURIComponent(contentId)}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status })
+    });
+  }
+
+  async assignUserSquad(userId: string, squadNumber: SquadNumber) {
+    return this.request<AdminUser>(`/api/v1/admin/users/${encodeURIComponent(userId)}/squad`, {
+      method: "PATCH",
+      body: JSON.stringify({ squadNumber })
     });
   }
 
