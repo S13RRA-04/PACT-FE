@@ -23,6 +23,13 @@ type ScoreboardEntry = {
   progressPercent: number;
 };
 
+type SessionDiagnostic = {
+  courseId: string;
+  cohortId: string;
+  role: PactRole;
+  visibleContentCount: number;
+};
+
 type LocalizedText = {
   en?: string;
 };
@@ -114,6 +121,7 @@ export function App() {
   const [sessionToken, setSessionToken] = useState(() => window.localStorage.getItem("pact_session") ?? "");
   const [session, setSession] = useState<PactSession | undefined>();
   const [scoreboard, setScoreboard] = useState<ScoreboardEntry[]>([]);
+  const [diagnostic, setDiagnostic] = useState<SessionDiagnostic | undefined>();
   const [content, setContent] = useState<PactContent[]>([]);
   const [managedContent, setManagedContent] = useState<PactContent[]>([]);
   const [selectedContentId, setSelectedContentId] = useState<string | undefined>();
@@ -159,7 +167,12 @@ export function App() {
       setContent(contentResponse);
       setScoreboard(scoreboardResponse.entries);
       setSelectedContentId((current) => current ?? contentResponse[0]?.id);
-      setManagedContent(sessionResponse.role === "admin" || sessionResponse.role === "instructor" ? await pactClient.getManagedContent() : []);
+      const canManageSession = sessionResponse.role === "admin" || sessionResponse.role === "instructor";
+      const [managedResponse, diagnosticResponse] = canManageSession
+        ? await Promise.all([pactClient.getManagedContent(), pactClient.getSessionDiagnostic()])
+        : [[], undefined];
+      setManagedContent(managedResponse);
+      setDiagnostic(diagnosticResponse);
       setStatus("PACT content synced from Mongo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to sync PACT content.");
@@ -237,6 +250,7 @@ export function App() {
             <button type="button" onClick={() => void saveSession()}>Save</button>
           </div>
           <p>{session ? `${session.role} session for ${session.courseId}/${session.cohortId}` : status}</p>
+          {diagnostic ? <SessionDiagnosticSummary diagnostic={diagnostic} /> : null}
         </section>
 
         {view === "modules" ? (
@@ -260,6 +274,25 @@ export function App() {
         {view === "scoreboard" ? <Scoreboard entries={scoreboard} /> : null}
       </section>
     </main>
+  );
+}
+
+function SessionDiagnosticSummary({ diagnostic }: { diagnostic: SessionDiagnostic }) {
+  return (
+    <dl className="diagnostic-grid" aria-label="Session diagnostics">
+      <div>
+        <dt>Course</dt>
+        <dd>{diagnostic.courseId}</dd>
+      </div>
+      <div>
+        <dt>Cohort</dt>
+        <dd>{diagnostic.cohortId}</dd>
+      </div>
+      <div>
+        <dt>Visible</dt>
+        <dd>{diagnostic.visibleContentCount}</dd>
+      </div>
+    </dl>
   );
 }
 
@@ -492,6 +525,10 @@ class PactClient {
 
   async getManagedContent() {
     return this.request<PactContent[]>("/api/v1/admin/content");
+  }
+
+  async getSessionDiagnostic() {
+    return this.request<SessionDiagnostic>("/api/v1/admin/diagnostics/session");
   }
 
   async updateContentStatus(contentId: string, status: ContentStatus) {
