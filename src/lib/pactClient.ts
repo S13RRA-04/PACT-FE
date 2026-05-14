@@ -1,4 +1,4 @@
-import type { AdminAuditEvent, AdminCohort, AdminUser, AnswerValue, ContentProgress, ContentStatus, PactContent, PactSession, QuestionAttempt, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
+import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AdminUser, AgsAttemptPage, AgsPublishAttemptStatus, AgsQueueProcessingResult, AgsTokenContextDiagnostic, AnswerValue, AssignmentCompletion, ContentProgress, ContentStatus, ManualGradingStatus, PactContent, PactNotification, PactNotificationStatus, PactSession, QuestionAttempt, QuestionSubmissionFeedback, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
 
 export class PactClient {
   private csrfToken: string | undefined;
@@ -28,6 +28,15 @@ export class PactClient {
     }
   }
 
+  async getContentCompletion(contentId: string) {
+    return this.request<{
+      contentId: string;
+      completion: AssignmentCompletion;
+      progress?: ContentProgress;
+      score?: { score: number; maxScore: number; progressPercent: number; agsStatus: string };
+    }>(`/api/v1/content/${encodeURIComponent(contentId)}/completion`);
+  }
+
   async updateContentProgress(contentId: string, input: Pick<ContentProgress, "answers" | "progressPercent">) {
     try {
       return await this.request<ContentProgress>(`/api/v1/content/${encodeURIComponent(contentId)}/progress`, {
@@ -44,7 +53,13 @@ export class PactClient {
 
   async submitQuestionAttempt(contentId: string, questionId: string, input: { answer: AnswerValue; feedbackExposed: boolean }) {
     try {
-      return await this.request<{ attempt: QuestionAttempt; progress: ContentProgress }>(
+      return await this.request<{
+        attempt: QuestionAttempt;
+        feedback: QuestionSubmissionFeedback;
+        progress: ContentProgress;
+        score?: unknown;
+        completion?: AssignmentCompletion;
+      }>(
         `/api/v1/content/${encodeURIComponent(contentId)}/questions/${encodeURIComponent(questionId)}/attempts`,
         {
           method: "POST",
@@ -71,16 +86,21 @@ export class PactClient {
     return this.request<{ cohorts: AdminCohort[] }>("/api/v1/admin/cohorts");
   }
 
-  async getAdminAuditEvents() {
-    return this.request<{ events: AdminAuditEvent[] }>("/api/v1/admin/audit-events");
+  async getAdminAuditEvents(input: { action?: AdminAuditAction; limit?: number } = {}) {
+    const params = new URLSearchParams();
+    if (input.action) params.set("action", input.action);
+    if (input.limit) params.set("limit", String(input.limit));
+    const query = params.toString();
+    return this.request<{ events: AdminAuditEvent[] }>(`/api/v1/admin/audit-events${query ? `?${query}` : ""}`);
   }
 
-  async getQuestionAttempts(input: { cohortId?: string; contentId?: string; userId?: string; questionId?: string; limit?: number } = {}) {
+  async getQuestionAttempts(input: { cohortId?: string; contentId?: string; userId?: string; questionId?: string; manualGradingStatus?: ManualGradingStatus; limit?: number } = {}) {
     const params = new URLSearchParams();
     if (input.cohortId) params.set("cohortId", input.cohortId);
     if (input.contentId) params.set("contentId", input.contentId);
     if (input.userId) params.set("userId", input.userId);
     if (input.questionId) params.set("questionId", input.questionId);
+    if (input.manualGradingStatus) params.set("manualGradingStatus", input.manualGradingStatus);
     if (input.limit) params.set("limit", String(input.limit));
     const query = params.toString();
     try {
@@ -91,6 +111,65 @@ export class PactClient {
       }
       throw error;
     }
+  }
+
+  async gradeManualQuestionAttempt(attemptId: string, input: { score: number; feedback?: string }) {
+    return this.request<{ completion?: AssignmentCompletion; progress?: ContentProgress }>(
+      `/api/v1/admin/analytics/question-attempts/${encodeURIComponent(attemptId)}/grade`,
+      {
+        method: "POST",
+        body: JSON.stringify(input)
+      }
+    );
+  }
+
+  async getAgsTokenContext() {
+    return this.request<AgsTokenContextDiagnostic>("/api/v1/admin/diagnostics/ags-token-context");
+  }
+
+  async getAgsPublishAttempts(input: { status?: AgsPublishAttemptStatus; cohortId?: string; contentId?: string; userId?: string; cursor?: string; limit?: number } = {}) {
+    const params = new URLSearchParams();
+    if (input.status) params.set("status", input.status);
+    if (input.cohortId) params.set("cohortId", input.cohortId);
+    if (input.contentId) params.set("contentId", input.contentId);
+    if (input.userId) params.set("userId", input.userId);
+    if (input.cursor) params.set("cursor", input.cursor);
+    if (input.limit) params.set("limit", String(input.limit));
+    const query = params.toString();
+    return this.request<AgsAttemptPage>(`/api/v1/admin/diagnostics/ags-publish-attempts${query ? `?${query}` : ""}`);
+  }
+
+  async getNotificationDiagnostics(input: { status?: PactNotificationStatus; limit?: number } = {}) {
+    const params = new URLSearchParams();
+    if (input.status) params.set("status", input.status);
+    if (input.limit) params.set("limit", String(input.limit));
+    const query = params.toString();
+    return this.request<{ notifications: PactNotification[] }>(`/api/v1/admin/diagnostics/notifications${query ? `?${query}` : ""}`);
+  }
+
+  agsPublishAttemptsExportUrl(input: { status?: AgsPublishAttemptStatus; cohortId?: string; contentId?: string; userId?: string; limit?: number } = {}) {
+    const params = new URLSearchParams();
+    if (input.status) params.set("status", input.status);
+    if (input.cohortId) params.set("cohortId", input.cohortId);
+    if (input.contentId) params.set("contentId", input.contentId);
+    if (input.userId) params.set("userId", input.userId);
+    if (input.limit) params.set("limit", String(input.limit));
+    const query = params.toString();
+    return `${this.baseUrl}/api/v1/admin/diagnostics/ags-publish-attempts/export.csv${query ? `?${query}` : ""}`;
+  }
+
+  async retryAgsPublishAttempt(attemptId: string, agsAccessToken?: string) {
+    return this.request<{ agsStatus: AgsPublishAttemptStatus }>(`/api/v1/admin/diagnostics/ags-publish-attempts/${encodeURIComponent(attemptId)}/retry`, {
+      method: "POST",
+      body: JSON.stringify({ agsAccessToken: agsAccessToken || undefined })
+    });
+  }
+
+  async processDueAgsPublishAttempts() {
+    return this.request<AgsQueueProcessingResult>("/api/v1/admin/diagnostics/ags-publish-attempts/process-due", {
+      method: "POST",
+      body: JSON.stringify({})
+    });
   }
 
   async updateContentStatus(contentId: string, status: ContentStatus) {

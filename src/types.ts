@@ -3,6 +3,8 @@ export type SquadNumber = "1" | "2" | "3" | "4";
 export type ContentType = "module" | "challenge" | "game" | "assessment";
 export type ContentStatus = "draft" | "published" | "archived";
 export type QuestionKind = "multiple_choice" | "true_false" | "fill_blank" | "drag_match";
+export type ManualGradingStatus = "pending" | "graded" | "not_required";
+export type CompletionStatus = "in_progress" | "pending_manual" | "failed_must_pass" | "complete";
 
 export type PactSession = {
   userId: string;
@@ -51,18 +53,35 @@ export type AdminCohort = {
 
 export type AdminAuditEvent = {
   id: string;
-  action: "squad.assignment.changed";
+  action: "squad.assignment.changed" | "question.manual_grade.upserted" | "ags.queue.process_due.triggered";
   actorUserId: string;
   actorName?: string;
   targetUserId: string;
   targetName?: string;
   courseId: string;
   cohortId: string;
+  metadata?: Record<string, unknown>;
   previousSquadId?: string;
-  nextSquadId: string;
+  nextSquadId?: string;
   nextSquadNumber?: SquadNumber;
+  contentId?: string;
+  questionId?: string;
+  attemptId?: string;
+  previousScore?: number;
+  nextScore?: number;
+  maxScore?: number;
+  previousIsCorrect?: boolean;
+  nextIsCorrect?: boolean;
+  feedbackChanged?: boolean;
+  scanned?: number;
+  retried?: number;
+  failed?: number;
+  exhausted?: number;
+  limit?: number;
   createdAt: string;
 };
+
+export type AdminAuditAction = AdminAuditEvent["action"];
 
 export type SessionDiagnostic = {
   courseId: string;
@@ -137,6 +156,9 @@ export type PactQuestion = {
     points: number;
     difficulty: string;
     mustPass: boolean;
+    optional?: boolean;
+    maxAttempts?: number;
+    gradingMode?: "automatic" | "manual";
   };
 };
 
@@ -174,6 +196,31 @@ export type ContentProgress = {
   updatedAt: string;
 };
 
+export type AssignmentCompletion = {
+  complete: boolean;
+  status: CompletionStatus;
+  requiredQuestionIds: string[];
+  answeredRequiredQuestionIds: string[];
+  pendingQuestionIds: string[];
+  pendingManualQuestionIds: string[];
+  failedMustPassQuestionIds: string[];
+  exhaustedQuestionIds: string[];
+  score: number;
+  maxScore: number;
+};
+
+export type QuestionSubmissionFeedback = {
+  submissionId: string;
+  status: "correct" | "partial" | "incorrect" | "needs_review";
+  earnedPoints: number;
+  possiblePoints: number;
+  feedback?: unknown;
+  nextState: {
+    questionComplete: boolean;
+    attemptsRemaining?: number;
+  };
+};
+
 export type QuestionAttempt = {
   id: string;
   userId: string;
@@ -192,5 +239,78 @@ export type QuestionAttempt = {
   isCorrect: boolean;
   feedbackExposed: boolean;
   feedbackExposedAt?: string;
+  manualGradingStatus?: ManualGradingStatus;
+  manualGrade?: {
+    score: number;
+    maxScore: number;
+    isCorrect: boolean;
+    feedback?: string;
+    gradedByUserId: string;
+    gradedAt: string;
+  };
   submittedAt: string;
+};
+
+export type AgsPublishAttemptStatus = "pending" | "published" | "failed" | "retry_exhausted" | "not_applicable" | "skipped_duplicate";
+
+export type AgsPublishAttempt = {
+  id: string;
+  courseId: string;
+  cohortId: string;
+  squadId?: string;
+  userId: string;
+  contentId: string;
+  lineItemUrl?: string;
+  score: number;
+  maxScore: number;
+  progressPercent: number;
+  status: AgsPublishAttemptStatus;
+  retryCount?: number;
+  nextRetryAt?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+};
+
+export type AgsAttemptPage = {
+  attempts: AgsPublishAttempt[];
+  nextCursor?: string;
+  summary?: {
+    total: number;
+    byStatus: Partial<Record<AgsPublishAttemptStatus, number>>;
+  };
+};
+
+export type AgsQueueProcessingResult = {
+  scanned: number;
+  retried: number;
+  failed: number;
+  exhausted: number;
+};
+
+export type AgsTokenContextDiagnostic = {
+  courseId: string;
+  cohortId: string;
+  hasLaunchContext: boolean;
+  hasScoreScope: boolean;
+  lineItemsUrl?: string;
+  lineItemUrl?: string;
+  scopes: string[];
+  updatedAt?: string;
+};
+
+export type PactNotificationStatus = "pending" | "delivered" | "dead_letter";
+
+export type PactNotification = {
+  id: string;
+  event: "ags.retry_exhausted";
+  sinkUrl: string;
+  payload: Record<string, unknown>;
+  status: PactNotificationStatus;
+  attemptCount: number;
+  nextAttemptAt: string;
+  lastStatus?: number;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
 };

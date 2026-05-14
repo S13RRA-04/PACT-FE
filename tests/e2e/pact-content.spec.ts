@@ -71,8 +71,6 @@ const scoreboard = {
 test("learner content workspace restores and saves backend progress", async ({ page }) => {
   await mockPactApi(page);
   await page.goto("/");
-  await page.getByLabel("PACT session token").fill("qa-token");
-  await page.getByRole("button", { name: "Sync" }).click();
 
   await expect(page.getByRole("heading", { name: "Incident Triage Fundamentals", level: 2 })).toBeVisible();
   await expect(page.getByText("33% complete")).toBeVisible();
@@ -140,6 +138,14 @@ async function mockPactApi(page: Page) {
             feedbackExposed: true,
             feedbackExposedAt: "2026-05-14T12:01:00.000Z",
             submittedAt: "2026-05-14T12:01:00.000Z"
+          },
+          feedback: {
+            submissionId: "q2",
+            status: "correct",
+            earnedPoints: 5,
+            possiblePoints: 5,
+            feedback: { en: "Correct. This response earned full credit." },
+            nextState: { questionComplete: true }
           },
           progress: progress[0]
         }

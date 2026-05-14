@@ -4,9 +4,11 @@ import { ContentWorkspace, ControlPlane, Scoreboard, SessionDiagnosticSummary } 
 import { contextSquadLabel, initialsFor, roleLabel, themeLabelFor } from "./lib/format";
 import { PactClient } from "./lib/pactClient";
 import { scoreQuestion } from "./lib/scoring";
-import type { AdminAuditEvent, AdminCohort, AnswerState, AnswerValue, ContentFilter, ContentProgress, ContentStatus, PactContent, PactSession, QuestionAttempt, ScoreboardEntry, SessionDiagnostic, SquadNumber, View } from "./types";
+import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AgsPublishAttempt, AgsPublishAttemptStatus, AgsTokenContextDiagnostic, AnswerState, AnswerValue, AssignmentCompletion, ContentFilter, ContentProgress, ContentStatus, ManualGradingStatus, PactContent, PactNotification, PactSession, QuestionAttempt, QuestionSubmissionFeedback, ScoreboardEntry, SessionDiagnostic, SquadNumber, View } from "./types";
 
 const apiBaseUrl = requireApiBaseUrl();
+type QuestionAttemptFilters = { cohortId?: string; contentId?: string; userId?: string; questionId?: string; manualGradingStatus?: ManualGradingStatus };
+type CompletionScoreStatus = { score: number; maxScore: number; progressPercent: number; agsStatus: string };
 
 function requireApiBaseUrl() {
   const value = (import.meta.env.VITE_PACT_API_BASE_URL ?? "http://localhost:4100").replace(/\/$/, "");
@@ -32,10 +34,22 @@ export function App() {
   const [managedContent, setManagedContent] = useState<PactContent[]>([]);
   const [adminCohorts, setAdminCohorts] = useState<AdminCohort[]>([]);
   const [adminAuditEvents, setAdminAuditEvents] = useState<AdminAuditEvent[]>([]);
+  const [auditActionFilter, setAuditActionFilter] = useState<AdminAuditAction | undefined>();
   const [questionAttempts, setQuestionAttempts] = useState<QuestionAttempt[]>([]);
+  const [questionAttemptFilters, setQuestionAttemptFilters] = useState<QuestionAttemptFilters>({});
+  const [agsAttempts, setAgsAttempts] = useState<AgsPublishAttempt[]>([]);
+  const [agsNextCursor, setAgsNextCursor] = useState<string | undefined>();
+  const [agsSummary, setAgsSummary] = useState<{ total: number; byStatus: Partial<Record<AgsPublishAttemptStatus, number>> } | undefined>();
+  const [agsTokenContext, setAgsTokenContext] = useState<AgsTokenContextDiagnostic | undefined>();
+  const [notifications, setNotifications] = useState<PactNotification[]>([]);
+  const [agsFilters, setAgsFilters] = useState<{ status?: AgsPublishAttemptStatus; cohortId?: string; contentId?: string; userId?: string }>({});
+  const [agsPageSize, setAgsPageSize] = useState(100);
   const [selectedContentId, setSelectedContentId] = useState<string | undefined>();
   const [answers, setAnswers] = useState<AnswerState>({});
   const [submittedQuestionIds, setSubmittedQuestionIds] = useState<string[]>([]);
+  const [questionFeedback, setQuestionFeedback] = useState<Record<string, QuestionSubmissionFeedback>>({});
+  const [assignmentCompletion, setAssignmentCompletion] = useState<AssignmentCompletion | undefined>();
+  const [completionScore, setCompletionScore] = useState<CompletionScoreStatus | undefined>();
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const [result, setResult] = useState<{ score: number; maxScore: number } | undefined>();
   const [view, setView] = useState<View>("modules");
@@ -89,8 +103,16 @@ export function App() {
       setSelectedContentId(nextSelectedId);
       setAnswers(nextProgress?.answers ?? {});
       setSubmittedQuestionIds(nextProgress?.answeredQuestionIds ?? []);
+      setQuestionFeedback({});
+      setAssignmentCompletion(undefined);
+      setCompletionScore(undefined);
       setActiveQuestionIndex(firstOpenQuestionIndex(contentResponse.find((item) => item.id === nextSelectedId), nextProgress?.answeredQuestionIds ?? []));
       setResult(undefined);
+      if (nextSelectedId) {
+        const completionResponse = await pactClient.getContentCompletion(nextSelectedId);
+        setAssignmentCompletion(completionResponse.completion);
+        setCompletionScore(completionResponse.score);
+      }
 
       const canManageSession = sessionResponse.role === "admin" || sessionResponse.role === "instructor";
       const [managedResponse, diagnosticResponse, adminResponse, auditResponse] = canManageSession
@@ -98,17 +120,27 @@ export function App() {
             pactClient.getManagedContent(),
             pactClient.getSessionDiagnostic(),
             pactClient.getAdminCohorts(),
-            sessionResponse.role === "admin" ? pactClient.getAdminAuditEvents() : Promise.resolve({ events: [] })
+            sessionResponse.role === "admin" ? pactClient.getAdminAuditEvents({ action: auditActionFilter }) : Promise.resolve({ events: [] })
           ])
         : [[], undefined, { cohorts: [] }, { events: [] }];
-      const attemptsResponse = canManageSession
-        ? await pactClient.getQuestionAttempts({ cohortId: sessionResponse.cohortId, limit: 200 })
-        : { attempts: [] };
+      const [attemptsResponse, agsAttemptsResponse, agsTokenContextResponse, notificationResponse] = canManageSession
+        ? await Promise.all([
+            pactClient.getQuestionAttempts({ cohortId: sessionResponse.cohortId, limit: 200 }),
+            pactClient.getAgsPublishAttempts({ limit: agsPageSize }),
+            pactClient.getAgsTokenContext(),
+            pactClient.getNotificationDiagnostics({ status: "dead_letter", limit: 100 })
+          ])
+        : [{ attempts: [] }, { attempts: [] }, undefined, { notifications: [] }];
       setManagedContent(managedResponse);
       setDiagnostic(diagnosticResponse);
       setAdminCohorts(adminResponse.cohorts);
       setAdminAuditEvents(auditResponse.events);
       setQuestionAttempts(attemptsResponse.attempts);
+      setAgsAttempts(agsAttemptsResponse.attempts);
+      setAgsNextCursor(agsAttemptsResponse.nextCursor);
+      setAgsSummary(agsAttemptsResponse.summary);
+      setAgsTokenContext(agsTokenContextResponse);
+      setNotifications(notificationResponse.notifications);
       setStatus("PACT content synced from Mongo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to sync PACT content.");
@@ -121,8 +153,25 @@ export function App() {
     setSelectedContentId(contentId);
     setAnswers(nextProgress?.answers ?? {});
     setSubmittedQuestionIds(nextProgress?.answeredQuestionIds ?? []);
+    setQuestionFeedback({});
+    setAssignmentCompletion(undefined);
+    setCompletionScore(undefined);
     setActiveQuestionIndex(firstOpenQuestionIndex(nextContent, nextProgress?.answeredQuestionIds ?? []));
     setResult(undefined);
+    void loadCompletionStatus(contentId);
+  }
+
+  async function loadCompletionStatus(contentId: string) {
+    try {
+      const response = await client.getContentCompletion(contentId);
+      setAssignmentCompletion(response.completion);
+      setCompletionScore(response.score);
+      if (response.progress) {
+        setProgress((current) => [response.progress as ContentProgress, ...current.filter((item) => item.contentId !== response.progress?.contentId)]);
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to load assignment status.");
+    }
   }
 
   function saveAnswer(questionId: string, value: AnswerValue) {
@@ -147,7 +196,9 @@ export function App() {
       if (attemptResponse) {
         setProgress((current) => [attemptResponse.progress, ...current.filter((item) => item.contentId !== attemptResponse.progress.contentId)]);
         setSubmittedQuestionIds(attemptResponse.progress.answeredQuestionIds);
-        setStatus("Question submitted. Feedback is available.");
+        setQuestionFeedback((current) => ({ ...current, [questionId]: attemptResponse.feedback }));
+        setAssignmentCompletion(attemptResponse.completion);
+        setStatus(statusForCompletion(attemptResponse.completion, attemptResponse.feedback));
         return;
       }
 
@@ -228,13 +279,101 @@ export function App() {
     }
   }
 
-  async function loadQuestionAttempts(input: { cohortId?: string; contentId?: string; userId?: string; questionId?: string }) {
+  async function loadQuestionAttempts(input: QuestionAttemptFilters) {
     try {
       const response = await client.getQuestionAttempts({ ...input, limit: 200 });
+      setQuestionAttemptFilters(input);
       setQuestionAttempts(response.attempts);
       setStatus("Question attempts loaded.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Unable to load question attempts.");
+    }
+  }
+
+  async function gradeManualAttempt(attemptId: string, input: { score: number; feedback?: string }) {
+    try {
+      await client.gradeManualQuestionAttempt(attemptId, input);
+      const [attemptsResponse, scoreboardResponse, progressResponse] = await Promise.all([
+        client.getQuestionAttempts({ ...questionAttemptFilters, limit: 200 }),
+        client.getScoreboard(),
+        client.getContentProgress()
+      ]);
+      setQuestionAttempts(attemptsResponse.attempts);
+      setScoreboard(scoreboardResponse.entries);
+      setProgress(progressResponse.progress);
+      setStatus("Manual grade saved and completion policy re-run.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to save manual grade.");
+    }
+  }
+
+  async function loadAgsAttempts(input: { status?: AgsPublishAttemptStatus; cohortId?: string; contentId?: string; userId?: string }, mode: "replace" | "append" = "replace", pageSize = agsPageSize) {
+    try {
+      const nextFilters = mode === "replace" ? input : agsFilters;
+      setAgsPageSize(pageSize);
+      const response = await client.getAgsPublishAttempts({
+        ...nextFilters,
+        cursor: mode === "append" ? agsNextCursor : undefined,
+        limit: pageSize
+      });
+      setAgsFilters(nextFilters);
+      setAgsAttempts((current) => mode === "append" ? [...current, ...response.attempts] : response.attempts);
+      setAgsNextCursor(response.nextCursor);
+      setAgsSummary(response.summary);
+      setStatus("AGS diagnostics loaded.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to load AGS diagnostics.");
+    }
+  }
+
+  async function retryAgsAttempt(attemptId: string, agsAccessToken: string) {
+    try {
+      await client.retryAgsPublishAttempt(attemptId, agsAccessToken);
+      const response = await client.getAgsPublishAttempts({ ...agsFilters, limit: agsPageSize });
+      setAgsAttempts(response.attempts);
+      setAgsNextCursor(response.nextCursor);
+      setAgsSummary(response.summary);
+      setStatus("AGS publish retry submitted.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to retry AGS publish.");
+    }
+  }
+
+  async function processDueAgsAttempts() {
+    try {
+      const result = await client.processDueAgsPublishAttempts();
+      const [attemptsResponse, notificationResponse] = await Promise.all([
+        client.getAgsPublishAttempts({ ...agsFilters, limit: agsPageSize }),
+        client.getNotificationDiagnostics({ status: "dead_letter", limit: 100 })
+      ]);
+      setAgsAttempts(attemptsResponse.attempts);
+      setAgsNextCursor(attemptsResponse.nextCursor);
+      setAgsSummary(attemptsResponse.summary);
+      setNotifications(notificationResponse.notifications);
+      setStatus(`Processed due AGS queue: ${result.retried} retried, ${result.failed} failed, ${result.exhausted} exhausted.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to process due AGS queue.");
+    }
+  }
+
+  async function loadAdminAuditEvents(action?: AdminAuditAction) {
+    try {
+      setAuditActionFilter(action);
+      const response = await client.getAdminAuditEvents({ action });
+      setAdminAuditEvents(response.events);
+      setStatus("Audit events loaded.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to load audit events.");
+    }
+  }
+
+  async function loadNotificationDiagnostics() {
+    try {
+      const response = await client.getNotificationDiagnostics({ status: "dead_letter", limit: 100 });
+      setNotifications(response.notifications);
+      setStatus("Notification diagnostics loaded.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to load notification diagnostics.");
     }
   }
 
@@ -311,6 +450,9 @@ export function App() {
             answeredCount={answeredCount}
             activeQuestionIndex={activeQuestionIndex}
             submittedQuestionIds={submittedQuestionIds}
+            questionFeedback={questionFeedback}
+            assignmentCompletion={assignmentCompletion}
+            completionScore={completionScore}
             progressPercent={selectedProgressPercent}
             result={result}
             persistedProgress={selectedProgress}
@@ -323,8 +465,12 @@ export function App() {
               setSelectedContentId(nextContent?.id);
               setAnswers(nextProgress?.answers ?? {});
               setSubmittedQuestionIds(nextProgress?.answeredQuestionIds ?? []);
+              setQuestionFeedback({});
+              setAssignmentCompletion(undefined);
+              setCompletionScore(undefined);
               setActiveQuestionIndex(firstOpenQuestionIndex(nextContent, nextProgress?.answeredQuestionIds ?? []));
               setResult(undefined);
+              if (nextContent?.id) void loadCompletionStatus(nextContent.id);
             }}
             onSelectContent={selectContent}
             onAnswer={saveAnswer}
@@ -340,6 +486,13 @@ export function App() {
             cohorts={adminCohorts}
             auditEvents={adminAuditEvents}
             questionAttempts={questionAttempts}
+            agsAttempts={agsAttempts}
+            agsNextCursor={agsNextCursor}
+            agsSummary={agsSummary}
+            agsPageSize={agsPageSize}
+            agsTokenContext={agsTokenContext}
+            notifications={notifications}
+            agsExportUrl={client.agsPublishAttemptsExportUrl({ ...agsFilters, limit: Math.max(agsPageSize, 10000) })}
             diagnostic={diagnostic}
             canAdmin={canAdmin}
             onUpdateStatus={(id, nextStatus) => void updateGate(id, nextStatus)}
@@ -347,6 +500,13 @@ export function App() {
             onUpdateLmsLabel={(id, lmsLabel) => void updateContentLmsLabel(id, lmsLabel)}
             onAssignSquad={(userId, squadNumber) => void assignSquad(userId, squadNumber)}
             onLoadQuestionAttempts={(filters) => void loadQuestionAttempts(filters)}
+            onGradeManualAttempt={(attemptId, input) => void gradeManualAttempt(attemptId, input)}
+            onLoadAgsAttempts={(filters, pageSize) => void loadAgsAttempts(filters, "replace", pageSize)}
+            onLoadMoreAgsAttempts={(pageSize) => void loadAgsAttempts(agsFilters, "append", pageSize)}
+            onRetryAgsAttempt={(attemptId, agsAccessToken) => void retryAgsAttempt(attemptId, agsAccessToken)}
+            onProcessDueAgsAttempts={() => void processDueAgsAttempts()}
+            onLoadNotifications={() => void loadNotificationDiagnostics()}
+            onLoadAuditEvents={(action) => void loadAdminAuditEvents(action)}
           />
         ) : null}
         {view === "scoreboard" ? <Scoreboard entries={scoreboard} /> : null}
@@ -377,4 +537,17 @@ function firstOpenQuestionIndex(content?: PactContent, submittedQuestionIds: str
   const questions = content?.questions ?? [];
   const index = questions.findIndex((question) => !submittedQuestionIds.includes(question.id));
   return index === -1 ? 0 : index;
+}
+
+function statusForCompletion(completion: AssignmentCompletion | undefined, feedback: QuestionSubmissionFeedback) {
+  if (completion?.status === "pending_manual" || feedback.status === "needs_review") {
+    return "Question submitted for instructor review. Final score is pending manual grade.";
+  }
+  if (completion?.status === "failed_must_pass") {
+    return "Assignment cannot be completed until must-pass requirements are met.";
+  }
+  if (completion?.status === "complete") {
+    return "Assignment completed and submitted.";
+  }
+  return "Question submitted. Feedback is available.";
 }

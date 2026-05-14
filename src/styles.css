@@ -24,7 +24,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -411,12 +412,18 @@ article {
 }
 
 input,
-select {
+select,
+textarea {
   border: 1px solid #c8d5cf;
   border-radius: 8px;
   min-width: 0;
   padding: 0.78rem 1rem;
   width: 100%;
+}
+
+textarea {
+  min-height: 5rem;
+  resize: vertical;
 }
 
 .module-layout {
@@ -672,6 +679,31 @@ select {
   color: #654710;
 }
 
+.answer-feedback.pending,
+.score-callout.pending {
+  background: #dcecff;
+  border: 1px solid #aac7f2;
+  color: #153f79;
+}
+
+.score-callout.failed {
+  background: #f8d7da;
+  border: 1px solid #efb3ba;
+  color: #7a1f28;
+}
+
+.score-callout.success {
+  background: #e8f6ef;
+  border: 1px solid #b8ddca;
+  color: #155b38;
+}
+
+.score-callout.neutral {
+  background: var(--surface-muted);
+  border: 1px solid #e5ece8;
+  color: #40524b;
+}
+
 .answer-feedback span,
 .answer-feedback small {
   font-size: 0.9rem;
@@ -836,8 +868,31 @@ select {
   border: 1px solid color-mix(in srgb, var(--accent), #fff 55%);
   border-radius: 8px;
   color: var(--accent-dark);
+  display: grid;
+  gap: 0.25rem;
   font-weight: 800;
   padding: 0.75rem;
+}
+
+.score-callout span,
+.score-callout small {
+  font-size: 0.76rem;
+}
+
+.score-callout span {
+  color: #40524b;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.score-callout strong {
+  font-size: 1.1rem;
+}
+
+.score-callout small {
+  color: #60716b;
+  font-weight: 750;
+  line-height: 1.35;
 }
 
 .control-plane {
@@ -934,6 +989,16 @@ select {
   background: #e9edf0;
 }
 
+.status.failed {
+  background: #f8d7da;
+  color: #7a1f28;
+}
+
+.status.pending {
+  background: #dcecff;
+  color: #153f79;
+}
+
 .admin-console {
   display: grid;
   gap: 1rem;
@@ -947,19 +1012,167 @@ select {
   gap: 0.75rem;
 }
 
+.ags-diagnostics,
+.notification-diagnostics {
+  display: grid;
+  gap: 1rem;
+}
+
+.ags-attempt-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ags-token-context {
+  align-items: center;
+  border: 1px solid #e5ece8;
+  border-radius: 8px;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, auto);
+  padding: 0.85rem;
+}
+
+.ags-token-context.ready {
+  background: #e8f6ef;
+  border-color: #b8ddca;
+}
+
+.ags-token-context.needs-launch {
+  background: #fff4d8;
+  border-color: #e4ba58;
+}
+
+.ags-token-context p {
+  color: #40524b;
+  margin-top: 0.25rem;
+}
+
+.ags-token-context dl {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.ags-token-context dt {
+  color: #60716b;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ags-token-context dd {
+  font-weight: 850;
+  margin: 0.15rem 0 0;
+}
+
+.ags-attempt-row {
+  align-items: center;
+  border: 1px solid #e5ece8;
+  border-radius: 8px;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(13rem, 1fr) 7rem repeat(3, minmax(5.5rem, 7rem)) minmax(10rem, 1fr) minmax(12rem, 16rem);
+  padding: 0.85rem;
+}
+
+.ags-attempt-row > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.ags-attempt-row small,
+.ags-attempt-row strong,
+.ags-error {
+  overflow-wrap: anywhere;
+}
+
+.ags-attempt-row span,
+.ags-attempt-row time {
+  color: #60716b;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.ags-attempt-row > div:not(:first-child) > span,
+.ags-error > span {
+  text-transform: uppercase;
+}
+
+.retry-controls {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.retry-controls input {
+  padding: 0.55rem 0.7rem;
+}
+
+.retry-controls button {
+  padding: 0.55rem 0.7rem;
+}
+
 .attempt-review {
   display: grid;
   gap: 1rem;
 }
 
 .attempt-filters {
-  grid-template-columns: repeat(6, minmax(9rem, 1fr));
+  grid-template-columns: repeat(7, minmax(9rem, 1fr));
 }
 
 .attempt-summary {
   display: grid;
   gap: 0.6rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.ags-alert {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  color: #9a3412;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  padding: 0.75rem 0.85rem;
+}
+
+.ags-alert span {
+  color: #9a3412;
+  font-size: 0.86rem;
+}
+
+.ags-queue-action {
+  align-items: center;
+  border: 1px solid #e5ece8;
+  border-radius: 8px;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 0.85rem;
+}
+
+.ags-queue-action.ready {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.ags-queue-action.blocked {
+  background: #f8fafc;
+}
+
+.ags-queue-action div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.ags-queue-action span {
+  color: #60716b;
+  font-size: 0.86rem;
 }
 
 .attempt-summary div {
@@ -994,6 +1207,20 @@ select {
   padding: 0.85rem;
 }
 
+.manual-grade-editor {
+  align-items: end;
+  border-top: 1px solid #e5ece8;
+  display: grid;
+  gap: 0.75rem;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(8rem, 10rem) minmax(12rem, 1fr) auto minmax(12rem, auto);
+  padding-top: 0.75rem;
+}
+
+.manual-grade-editor button {
+  min-height: 2.65rem;
+}
+
 .attempt-row > div {
   display: grid;
   gap: 0.2rem;
@@ -1010,7 +1237,26 @@ select {
 .section-head {
   align-items: center;
   display: flex;
+  gap: 1rem;
   justify-content: space-between;
+}
+
+.section-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.button-link {
+  background: #eef4f1;
+  border: 1px solid #d4e0db;
+  border-radius: 8px;
+  color: #2f403a;
+  display: inline-flex;
+  font-weight: 800;
+  padding: 0.72rem 1rem;
+  text-decoration: none;
 }
 
 .section-head p {
@@ -1123,6 +1369,13 @@ select {
   padding-top: 1rem;
 }
 
+.audit-panel-head {
+  align-items: end;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
 .audit-row {
   align-items: center;
   border: 1px solid #e5ece8;
@@ -1201,6 +1454,7 @@ select {
   .runner-head,
   .cohort-panel header,
   .audit-panel header,
+  .section-head,
   .audit-row,
   .admin-user-row,
   .session-input {
@@ -1226,6 +1480,11 @@ select {
   .gate-row,
   .row,
   .attempt-row,
+  .manual-grade-editor,
+  .ags-attempt-row,
+  .ags-queue-action,
+  .ags-token-context,
+  .ags-token-context dl,
   .attempt-filters,
   .attempt-summary {
     grid-template-columns: 1fr;

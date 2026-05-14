@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { AdminAuditEvent, AdminCohort, AnswerState, AnswerValue, ContentFilter, ContentProgress, ContentStatus, ContentType, PactContent, PactQuestion, PactSession, QuestionAttempt, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
+import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AgsPublishAttempt, AgsPublishAttemptStatus, AgsTokenContextDiagnostic, AnswerState, AnswerValue, AssignmentCompletion, ContentFilter, ContentProgress, ContentStatus, ContentType, ManualGradingStatus, PactContent, PactNotification, PactQuestion, PactSession, QuestionAttempt, QuestionSubmissionFeedback, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
 import { contentTypeLabel, contextSquadLabel, formatDateTime, roleLabel, text } from "../lib/format";
 import { isRecord, scoreQuestion, toggle } from "../lib/scoring";
 
@@ -36,6 +36,9 @@ export function ContentWorkspace({
   answeredCount,
   activeQuestionIndex,
   submittedQuestionIds,
+  questionFeedback,
+  assignmentCompletion,
+  completionScore,
   progressPercent,
   result,
   persistedProgress,
@@ -58,6 +61,9 @@ export function ContentWorkspace({
   answeredCount: number;
   activeQuestionIndex: number;
   submittedQuestionIds: string[];
+  questionFeedback: Record<string, QuestionSubmissionFeedback>;
+  assignmentCompletion?: AssignmentCompletion;
+  completionScore?: { score: number; maxScore: number; progressPercent: number; agsStatus: string };
   progressPercent: number;
   result?: { score: number; maxScore: number };
   persistedProgress?: ContentProgress;
@@ -88,9 +94,11 @@ export function ContentWorkspace({
         answeredCount={answeredCount}
         activeQuestionIndex={activeQuestionIndex}
         submittedQuestionIds={submittedQuestionIds}
+        questionFeedback={questionFeedback}
         progressPercent={progressPercent}
         result={result}
         persistedProgress={persistedProgress}
+        assignmentCompletion={assignmentCompletion}
         onAnswer={onAnswer}
         onQuestionSelect={onQuestionSelect}
         onSubmitQuestion={onSubmitQuestion}
@@ -103,6 +111,8 @@ export function ContentWorkspace({
         progressPercent={progressPercent}
         result={result}
         persistedProgress={persistedProgress}
+        assignmentCompletion={assignmentCompletion}
+        completionScore={completionScore}
         scoreboard={scoreboard}
         status={status}
       />
@@ -166,9 +176,11 @@ function ModuleRunner({
   answeredCount,
   activeQuestionIndex,
   submittedQuestionIds,
+  questionFeedback,
   progressPercent,
   result,
   persistedProgress,
+  assignmentCompletion,
   onAnswer,
   onQuestionSelect,
   onSubmitQuestion,
@@ -179,9 +191,11 @@ function ModuleRunner({
   answeredCount: number;
   activeQuestionIndex: number;
   submittedQuestionIds: string[];
+  questionFeedback: Record<string, QuestionSubmissionFeedback>;
   progressPercent: number;
   result?: { score: number; maxScore: number };
   persistedProgress?: ContentProgress;
+  assignmentCompletion?: AssignmentCompletion;
   onAnswer: (questionId: string, value: AnswerValue) => void;
   onQuestionSelect: (index: number) => void;
   onSubmitQuestion: (questionId: string) => void;
@@ -227,6 +241,7 @@ function ModuleRunner({
           questionCount={questions.length}
           value={activeValue}
           isSubmitted={activeSubmitted}
+          submissionFeedback={questionFeedback[activeQuestion.id]}
           canGoPrevious={activeIndex > 0}
           canGoNext={activeIndex < questions.length - 1}
           onChange={(value) => onAnswer(activeQuestion.id, value)}
@@ -236,7 +251,7 @@ function ModuleRunner({
         />
       ) : <Empty text="This content does not have questions loaded yet." />}
       <div className="submit-row">
-        {result ? <strong>{result.score}/{result.maxScore} submitted</strong> : <span>{persistedProgress?.status === "submitted" ? "Previously submitted" : `${answeredCount}/${questions.length} questions submitted`}</span>}
+        {result ? <strong>{result.score}/{result.maxScore} submitted</strong> : <span>{submissionSummary(assignmentCompletion, persistedProgress, answeredCount, questions.length)}</span>}
         <button type="button" onClick={onSubmit} disabled={!canSubmitContent}>Submit Content</button>
       </div>
     </article>
@@ -268,6 +283,7 @@ function QuestionCard({
   questionCount,
   value,
   isSubmitted,
+  submissionFeedback,
   canGoPrevious,
   canGoNext,
   onChange,
@@ -280,6 +296,7 @@ function QuestionCard({
   questionCount: number;
   value?: AnswerValue;
   isSubmitted: boolean;
+  submissionFeedback?: QuestionSubmissionFeedback;
   canGoPrevious: boolean;
   canGoNext: boolean;
   onChange: (value: AnswerValue) => void;
@@ -289,11 +306,15 @@ function QuestionCard({
 }) {
   const hasAnswer = hasAnswerValue(value);
   const earnedPoints = scoreQuestion(question, value);
-  const isCorrect = earnedPoints >= question.scoring.points;
+  const displayedPoints = submissionFeedback?.earnedPoints ?? earnedPoints;
+  const possiblePoints = submissionFeedback?.possiblePoints ?? question.scoring.points;
+  const feedbackStatus = submissionFeedback?.status ?? (displayedPoints >= possiblePoints ? "correct" : displayedPoints > 0 ? "partial" : "incorrect");
   const feedback = isSubmitted
-    ? isCorrect
-      ? text(question.feedback.correct) || "Correct. This response earned full credit."
-      : text(question.feedback.incorrect) || "Review this response before moving on."
+    ? feedbackStatus === "needs_review"
+      ? "Needs instructor review before final scoring."
+      : feedbackStatus === "correct"
+        ? (feedbackText(submissionFeedback) ?? text(question.feedback.correct)) || "Correct. This response earned full credit."
+        : (feedbackText(submissionFeedback) ?? text(question.feedback.incorrect)) || "Review this response before moving on."
     : undefined;
   return (
     <section className={`question ${isSubmitted ? "answered" : ""}`}>
@@ -304,9 +325,10 @@ function QuestionCard({
       <p>{text(question.stem)}</p>
       <QuestionInput question={question} value={value} onChange={onChange} />
       {isSubmitted ? (
-        <div className={`answer-feedback ${isCorrect ? "correct" : "incorrect"}`} role="status">
-          <strong>{earnedPoints}/{question.scoring.points} points</strong>
+        <div className={`answer-feedback ${feedbackClass(feedbackStatus)}`} role="status">
+          <strong>{feedbackLabel(feedbackStatus)} | {displayedPoints}/{possiblePoints} points</strong>
           <span>{feedback}</span>
+          {submissionFeedback?.nextState.attemptsRemaining !== undefined ? <small>{submissionFeedback.nextState.attemptsRemaining} attempts remaining</small> : null}
           {question.feedback.reference ? <small>Reference: {question.feedback.reference}</small> : null}
         </div>
       ) : null}
@@ -392,6 +414,8 @@ function ActivityPanel({
   progressPercent,
   result,
   persistedProgress,
+  assignmentCompletion,
+  completionScore,
   scoreboard,
   status
 }: {
@@ -401,11 +425,14 @@ function ActivityPanel({
   progressPercent: number;
   result?: { score: number; maxScore: number };
   persistedProgress?: ContentProgress;
+  assignmentCompletion?: AssignmentCompletion;
+  completionScore?: { score: number; maxScore: number; progressPercent: number; agsStatus: string };
   scoreboard: ScoreboardEntry[];
   status: string;
 }) {
   const ownScore = session ? scoreboard.find((entry) => entry.userId === session.userId) : undefined;
   const questionCount = content?.questions?.length ?? 0;
+  const completionState = completionDisplayState({ assignmentCompletion, completionScore, result, persistedProgress, ownScore, content });
   return (
     <aside className="activity-panel" aria-label="Learning activity">
       <section>
@@ -426,15 +453,11 @@ function ActivityPanel({
       </section>
       <section>
         <h3>Score Sync</h3>
-        {result ? (
-          <p className="score-callout">{result.score}/{result.maxScore} submitted for this content.</p>
-        ) : persistedProgress?.status === "submitted" ? (
-          <p className="score-callout">{persistedProgress.score ?? 0}/{persistedProgress.maxScore ?? content?.maxScore ?? 0} submitted previously.</p>
-        ) : ownScore ? (
-          <p className="score-callout">{ownScore.totalScore}/{ownScore.maxScore} total score, {ownScore.progressPercent}% progress.</p>
-        ) : (
-          <p className="muted">Submit content to publish progress back through the PACT API.</p>
-        )}
+        <div className={`score-callout ${completionState.tone}`}>
+          <span>{completionState.label}</span>
+          <strong>{completionState.value}</strong>
+          <small>{completionState.detail}</small>
+        </div>
       </section>
       <section><h3>Status</h3><p className="muted">{status}</p></section>
     </aside>
@@ -446,25 +469,53 @@ export function ControlPlane({
   cohorts,
   auditEvents,
   questionAttempts,
+  agsAttempts,
+  agsNextCursor,
+  agsSummary,
+  agsPageSize,
+  agsTokenContext,
+  notifications,
+  agsExportUrl,
   diagnostic,
   canAdmin,
   onUpdateStatus,
   onAssignContent,
   onUpdateLmsLabel,
   onAssignSquad,
-  onLoadQuestionAttempts
+  onLoadQuestionAttempts,
+  onGradeManualAttempt,
+  onLoadAgsAttempts,
+  onLoadMoreAgsAttempts,
+  onRetryAgsAttempt,
+  onProcessDueAgsAttempts,
+  onLoadNotifications,
+  onLoadAuditEvents
 }: {
   content: PactContent[];
   cohorts: AdminCohort[];
   auditEvents: AdminAuditEvent[];
   questionAttempts: QuestionAttempt[];
+  agsAttempts: AgsPublishAttempt[];
+  agsNextCursor?: string;
+  agsSummary?: { total: number; byStatus: Partial<Record<AgsPublishAttemptStatus, number>> };
+  agsPageSize: number;
+  agsTokenContext?: AgsTokenContextDiagnostic;
+  notifications: PactNotification[];
+  agsExportUrl: string;
   diagnostic?: SessionDiagnostic;
   canAdmin: boolean;
   onUpdateStatus: (id: string, status: ContentStatus) => void;
   onAssignContent: (id: string, cohortId: string | null) => void;
   onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
   onAssignSquad: (userId: string, squadNumber: SquadNumber) => void;
-  onLoadQuestionAttempts: (filters: { cohortId?: string; contentId?: string; userId?: string; questionId?: string }) => void;
+  onLoadQuestionAttempts: (filters: { cohortId?: string; contentId?: string; userId?: string; questionId?: string; manualGradingStatus?: ManualGradingStatus }) => void;
+  onGradeManualAttempt: (attemptId: string, input: { score: number; feedback?: string }) => void;
+  onLoadAgsAttempts: (filters: { status?: AgsPublishAttemptStatus; cohortId?: string; contentId?: string; userId?: string }, pageSize: number) => void;
+  onLoadMoreAgsAttempts: (pageSize: number) => void;
+  onRetryAgsAttempt: (attemptId: string, agsAccessToken: string) => void;
+  onProcessDueAgsAttempts: () => void;
+  onLoadNotifications: () => void;
+  onLoadAuditEvents: (action?: AdminAuditAction) => void;
 }) {
   return (
     <section className="control-plane">
@@ -473,25 +524,266 @@ export function ControlPlane({
         {diagnostic ? <SessionDiagnosticSummary diagnostic={diagnostic} /> : null}
       </article>
       <ContentDeliveryManager content={content} cohorts={cohorts} onUpdateStatus={onUpdateStatus} onAssignContent={onAssignContent} onUpdateLmsLabel={onUpdateLmsLabel} />
-      <AttemptReviewPanel content={content} cohorts={cohorts} attempts={questionAttempts} onLoad={onLoadQuestionAttempts} />
-      <AdminConsole cohorts={cohorts} auditEvents={canAdmin ? auditEvents : []} onAssign={onAssignSquad} showAudit={canAdmin} />
+      <AgsDiagnosticsPanel
+        content={content}
+        cohorts={cohorts}
+        attempts={agsAttempts}
+        nextCursor={agsNextCursor}
+        summary={agsSummary}
+        pageSize={agsPageSize}
+        tokenContext={agsTokenContext}
+        exportUrl={agsExportUrl}
+        onLoad={onLoadAgsAttempts}
+        onLoadMore={onLoadMoreAgsAttempts}
+        onRetry={onRetryAgsAttempt}
+        onProcessDue={onProcessDueAgsAttempts}
+      />
+      <NotificationDiagnosticsPanel notifications={notifications} onRefresh={onLoadNotifications} />
+      <AttemptReviewPanel content={content} cohorts={cohorts} attempts={questionAttempts} onLoad={onLoadQuestionAttempts} onGrade={onGradeManualAttempt} />
+      <AdminConsole cohorts={cohorts} auditEvents={canAdmin ? auditEvents : []} onAssign={onAssignSquad} onLoadAuditEvents={onLoadAuditEvents} showAudit={canAdmin} />
     </section>
+  );
+}
+
+function AgsDiagnosticsPanel({
+  content,
+  cohorts,
+  attempts,
+  nextCursor,
+  summary,
+  pageSize,
+  tokenContext,
+  exportUrl,
+  onLoad,
+  onLoadMore,
+  onRetry,
+  onProcessDue
+}: {
+  content: PactContent[];
+  cohorts: AdminCohort[];
+  attempts: AgsPublishAttempt[];
+  nextCursor?: string;
+  summary?: { total: number; byStatus: Partial<Record<AgsPublishAttemptStatus, number>> };
+  pageSize: number;
+  tokenContext?: AgsTokenContextDiagnostic;
+  exportUrl: string;
+  onLoad: (filters: { status?: AgsPublishAttemptStatus; cohortId?: string; contentId?: string; userId?: string }, pageSize: number) => void;
+  onLoadMore: (pageSize: number) => void;
+  onRetry: (attemptId: string, agsAccessToken: string) => void;
+  onProcessDue: () => void;
+}) {
+  const cohortOptions = useMemo(() => cohorts.map((cohort) => cohort.cohortId).sort(), [cohorts]);
+  const learnerOptions = useMemo(
+    () => cohorts.flatMap((cohort) => cohort.users.filter((user) => user.role === "learner").map((user) => ({ ...user, cohortId: cohort.cohortId }))),
+    [cohorts]
+  );
+  const [status, setStatus] = useState<AgsPublishAttemptStatus | "">("failed");
+  const [cohortId, setCohortId] = useState("");
+  const [contentId, setContentId] = useState("");
+  const [userId, setUserId] = useState("");
+  const [selectedPageSize, setSelectedPageSize] = useState(pageSize);
+  const [retryTokens, setRetryTokens] = useState<Record<string, string>>({});
+  const retryableCount = attempts.filter((attempt) => attempt.status === "failed" || attempt.status === "pending").length;
+  const exhaustedCount = summary?.byStatus.retry_exhausted ?? attempts.filter((attempt) => attempt.status === "retry_exhausted").length;
+  const pendingCount = summary?.byStatus.pending ?? attempts.filter((attempt) => attempt.status === "pending").length;
+  const failedCount = summary?.byStatus.failed ?? attempts.filter((attempt) => attempt.status === "failed").length;
+  const queueReady = Boolean(tokenContext?.hasLaunchContext && tokenContext.hasScoreScope);
+
+  function applyFilters() {
+    onLoad({
+      status: status || undefined,
+      cohortId: cohortId || undefined,
+      contentId: contentId || undefined,
+      userId: userId || undefined
+    }, selectedPageSize);
+  }
+
+  return (
+    <article className="ags-diagnostics">
+      <header className="section-head">
+        <div>
+          <h2>AGS Publish Diagnostics</h2>
+          <p>Inspect LMS grade sync outcomes, verify launch token context, and retry failed or pending publishes.</p>
+        </div>
+        <div className="section-actions">
+          <a className="button-link" href={exportUrl}>Export CSV</a>
+          <button type="button" onClick={applyFilters}>Refresh</button>
+        </div>
+      </header>
+      <div className={`ags-token-context ${tokenContext?.hasLaunchContext && tokenContext.hasScoreScope ? "ready" : "needs-launch"}`}>
+        <div>
+          <strong>{tokenContext?.hasLaunchContext && tokenContext.hasScoreScope ? "Server-side AGS tokens available" : "Launch context needs refresh"}</strong>
+          <p>
+            {tokenContext?.hasLaunchContext && tokenContext.hasScoreScope
+              ? `PACT can request short-lived LMS AGS score tokens for ${tokenContext.courseId}/${tokenContext.cohortId}.`
+              : "Launch PACT from the LMS as an instructor/admin with AGS scope before relying on durable retries."}
+          </p>
+        </div>
+        <dl>
+          <div><dt>Score Scope</dt><dd>{tokenContext?.hasScoreScope ? "Granted" : "Missing"}</dd></div>
+          <div><dt>Updated</dt><dd>{tokenContext?.updatedAt ? formatDateTime(tokenContext.updatedAt) : "No launch"}</dd></div>
+        </dl>
+      </div>
+      {exhaustedCount ? (
+        <div className="ags-alert" role="alert">
+          <strong>{exhaustedCount} AGS retry {exhaustedCount === 1 ? "attempt has" : "attempts have"} exhausted max attempts.</strong>
+          <span>Refresh the LMS launch context, inspect the LMS line item, then retry manually.</span>
+        </div>
+      ) : null}
+      <div className={`ags-queue-action ${queueReady ? "ready" : "blocked"}`} aria-label="AGS queue processing">
+        <div>
+          <strong>{pendingCount + failedCount} due or retryable sync {pendingCount + failedCount === 1 ? "item" : "items"}</strong>
+          <span>{queueReady ? "Manual processing is available for this launched course." : "Launch context must include AGS score scope before queue processing."}</span>
+        </div>
+        <button type="button" disabled={!queueReady} onClick={onProcessDue}>Process Due</button>
+      </div>
+      <div className="attempt-filters" aria-label="AGS diagnostics filters">
+        <label className="inline-select">
+          <span>Status</span>
+          <select value={status} onChange={(event) => setStatus(event.target.value as AgsPublishAttemptStatus | "")}>
+            <option value="">All statuses</option>
+            <option value="failed">Failed</option>
+            <option value="retry_exhausted">Retry exhausted</option>
+            <option value="pending">Pending</option>
+            <option value="published">Published</option>
+            <option value="not_applicable">Not applicable</option>
+            <option value="skipped_duplicate">Skipped duplicate</option>
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Cohort</span>
+          <select value={cohortId} onChange={(event) => setCohortId(event.target.value)}>
+            <option value="">All cohorts</option>
+            {cohortOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Content</span>
+          <select value={contentId} onChange={(event) => setContentId(event.target.value)}>
+            <option value="">All content</option>
+            {content.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Learner</span>
+          <select value={userId} onChange={(event) => setUserId(event.target.value)}>
+            <option value="">All learners</option>
+            {learnerOptions.map((learner) => <option key={learner.id} value={learner.id}>{learner.name ?? learner.email ?? learner.id}</option>)}
+          </select>
+        </label>
+        <label className="inline-select">
+          <span>Page size</span>
+          <select value={selectedPageSize} onChange={(event) => setSelectedPageSize(Number(event.target.value))}>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+            <option value={250}>250</option>
+            <option value={500}>500</option>
+          </select>
+        </label>
+      </div>
+      <div className="attempt-summary" aria-label="AGS diagnostics summary">
+        <div><span>Loaded</span><strong>{attempts.length}</strong></div>
+        <div><span>Total</span><strong>{summary?.total ?? attempts.length}</strong></div>
+        <div><span>Retryable Loaded</span><strong>{retryableCount}</strong></div>
+        <div><span>Pending</span><strong>{pendingCount}</strong></div>
+        <div><span>Exhausted</span><strong>{exhaustedCount}</strong></div>
+        <div><span>Failed</span><strong>{failedCount}</strong></div>
+        <div><span>Published</span><strong>{summary?.byStatus.published ?? attempts.filter((attempt) => attempt.status === "published").length}</strong></div>
+      </div>
+      <div className="ags-attempt-list">
+        {attempts.length ? attempts.map((attempt) => {
+          const retryable = attempt.status === "failed" || attempt.status === "pending";
+          const retryToken = retryTokens[attempt.id] ?? "";
+          const item = content.find((candidate) => candidate.id === attempt.contentId);
+          const learner = learnerOptions.find((candidate) => candidate.id === attempt.userId);
+          return (
+            <section className="ags-attempt-row" key={attempt.id}>
+              <div>
+                <strong>{item?.title ?? attempt.contentId}</strong>
+                <small>{learner?.name ?? learner?.email ?? attempt.userId} | {attempt.cohortId}</small>
+              </div>
+              <span className={`status ${statusClassForAgs(attempt.status)}`}>{attempt.status.replace(/_/g, " ")}</span>
+              <div><span>Score</span><strong>{attempt.score}/{attempt.maxScore}</strong></div>
+              <div><span>Retry</span><strong>{attempt.retryCount ?? 0}</strong></div>
+              <div><span>Created</span><time dateTime={attempt.createdAt}>{formatDateTime(attempt.createdAt)}</time></div>
+              <div className="ags-error">
+                <span>{attempt.errorCode ?? "No error"}</span>
+                <small>{attempt.nextRetryAt ? `Next ${formatDateTime(attempt.nextRetryAt)}` : attempt.errorMessage ?? attempt.lineItemUrl ?? "Recorded outcome"}</small>
+              </div>
+              {retryable ? (
+                <div className="retry-controls">
+                  <input
+                    aria-label={`AGS token for ${attempt.id}`}
+                    type="password"
+                    value={retryToken}
+                    onChange={(event) => setRetryTokens((current) => ({ ...current, [attempt.id]: event.target.value }))}
+                    placeholder={tokenContext?.hasScoreScope ? "Optional token override" : "AGS access token"}
+                  />
+                  <button type="button" disabled={!tokenContext?.hasScoreScope && !retryToken.trim()} onClick={() => onRetry(attempt.id, retryToken.trim())}>Retry</button>
+                </div>
+              ) : <span className="muted">Final outcome</span>}
+            </section>
+          );
+        }) : <Empty text="No AGS publish attempts match the current filters." />}
+      </div>
+      {nextCursor ? <button className="secondary-button" type="button" onClick={() => onLoadMore(selectedPageSize)}>Load More</button> : null}
+    </article>
+  );
+}
+
+function NotificationDiagnosticsPanel({ notifications, onRefresh }: { notifications: PactNotification[]; onRefresh: () => void }) {
+  return (
+    <article className="notification-diagnostics">
+      <header className="section-head">
+        <div>
+          <h2>Notification Diagnostics</h2>
+          <p>Inspect exhausted retry alerts that could not be delivered to configured sinks.</p>
+        </div>
+        <button type="button" onClick={onRefresh}>Refresh</button>
+      </header>
+      <div className="attempt-summary" aria-label="Notification diagnostics summary">
+        <div><span>Dead Letters</span><strong>{notifications.length}</strong></div>
+        <div><span>AGS Alerts</span><strong>{notifications.filter((item) => item.event === "ags.retry_exhausted").length}</strong></div>
+      </div>
+      <div className="ags-attempt-list">
+        {notifications.length ? notifications.map((notification) => (
+          <section className="ags-attempt-row" key={notification.id}>
+            <div>
+              <strong>{notification.event}</strong>
+              <small>{notification.sinkUrl}</small>
+            </div>
+            <span className="status status-failed">{notification.status.replace(/_/g, " ")}</span>
+            <div><span>Attempts</span><strong>{notification.attemptCount}</strong></div>
+            <div><span>Last Status</span><strong>{notification.lastStatus ?? "n/a"}</strong></div>
+            <div><span>Updated</span><time dateTime={notification.updatedAt}>{formatDateTime(notification.updatedAt)}</time></div>
+            <div className="ags-error">
+              <span>{notification.lastError ?? "Delivery failed"}</span>
+              <small>Created {formatDateTime(notification.createdAt)}</small>
+            </div>
+          </section>
+        )) : <Empty text="No dead-lettered notification deliveries." />}
+      </div>
+    </article>
   );
 }
 
 type AttemptCorrectnessFilter = "all" | "correct" | "incorrect";
 type AttemptRetryFilter = "all" | "first" | "retry";
+type AttemptManualFilter = "all" | ManualGradingStatus;
 
 function AttemptReviewPanel({
   content,
   cohorts,
   attempts,
-  onLoad
+  onLoad,
+  onGrade
 }: {
   content: PactContent[];
   cohorts: AdminCohort[];
   attempts: QuestionAttempt[];
-  onLoad: (filters: { cohortId?: string; contentId?: string; userId?: string; questionId?: string }) => void;
+  onLoad: (filters: { cohortId?: string; contentId?: string; userId?: string; questionId?: string; manualGradingStatus?: ManualGradingStatus }) => void;
+  onGrade: (attemptId: string, input: { score: number; feedback?: string }) => void;
 }) {
   const cohortOptions = useMemo(() => cohorts.map((cohort) => cohort.cohortId).sort(), [cohorts]);
   const learnerOptions = useMemo(
@@ -512,12 +804,15 @@ function AttemptReviewPanel({
   const [questionId, setQuestionId] = useState("");
   const [correctness, setCorrectness] = useState<AttemptCorrectnessFilter>("all");
   const [retry, setRetry] = useState<AttemptRetryFilter>("all");
+  const [manualStatus, setManualStatus] = useState<AttemptManualFilter>("all");
+  const [gradeDrafts, setGradeDrafts] = useState<Record<string, { score: string; feedback: string }>>({});
   const visibleQuestions = questionOptions.filter((question) => !contentId || question.contentId === contentId);
   const filteredAttempts = attempts.filter((attempt) => {
     if (correctness === "correct" && !attempt.isCorrect) return false;
     if (correctness === "incorrect" && attempt.isCorrect) return false;
     if (retry === "first" && attempt.attemptNumber !== 1) return false;
     if (retry === "retry" && attempt.attemptNumber <= 1) return false;
+    if (manualStatus !== "all" && (attempt.manualGradingStatus ?? "not_required") !== manualStatus) return false;
     return true;
   });
 
@@ -526,7 +821,29 @@ function AttemptReviewPanel({
       cohortId: cohortId || undefined,
       contentId: contentId || undefined,
       userId: userId || undefined,
-      questionId: questionId || undefined
+      questionId: questionId || undefined,
+      manualGradingStatus: manualStatus === "all" ? undefined : manualStatus
+    });
+  }
+
+  function gradeDraftFor(attempt: QuestionAttempt) {
+    return gradeDrafts[attempt.id] ?? {
+      score: String(attempt.manualGrade?.score ?? attempt.score ?? 0),
+      feedback: attempt.manualGrade?.feedback ?? ""
+    };
+  }
+
+  function updateGradeDraft(attemptId: string, patch: Partial<{ score: string; feedback: string }>) {
+    setGradeDrafts((current) => ({ ...current, [attemptId]: { ...(current[attemptId] ?? { score: "", feedback: "" }), ...patch } }));
+  }
+
+  function submitGrade(attempt: QuestionAttempt) {
+    const draft = gradeDraftFor(attempt);
+    const score = Number(draft.score);
+    if (!Number.isFinite(score)) return;
+    onGrade(attempt.id, {
+      score,
+      feedback: draft.feedback.trim() || undefined
     });
   }
 
@@ -584,27 +901,63 @@ function AttemptReviewPanel({
             <option value="retry">Retries only</option>
           </select>
         </label>
+        <label className="inline-select">
+          <span>Manual grade</span>
+          <select value={manualStatus} onChange={(event) => setManualStatus(event.target.value as AttemptManualFilter)}>
+            <option value="all">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="graded">Graded</option>
+            <option value="not_required">Not required</option>
+          </select>
+        </label>
       </div>
       <div className="attempt-summary" aria-label="Attempt review summary">
         <div><span>Showing</span><strong>{filteredAttempts.length}</strong></div>
         <div><span>Correct</span><strong>{filteredAttempts.filter((attempt) => attempt.isCorrect).length}</strong></div>
         <div><span>Retries</span><strong>{filteredAttempts.filter((attempt) => attempt.attemptNumber > 1).length}</strong></div>
         <div><span>Feedback seen</span><strong>{filteredAttempts.filter((attempt) => attempt.feedbackExposed).length}</strong></div>
+        <div><span>Pending manual</span><strong>{filteredAttempts.filter((attempt) => attempt.manualGradingStatus === "pending").length}</strong></div>
+        <div><span>Graded manual</span><strong>{filteredAttempts.filter((attempt) => attempt.manualGradingStatus === "graded").length}</strong></div>
       </div>
       <div className="attempt-list">
-        {filteredAttempts.length ? filteredAttempts.map((attempt) => (
-          <section className="attempt-row" key={attempt.id}>
-            <div>
-              <strong>{attempt.learnerName ?? attempt.learnerEmail ?? attempt.userId}</strong>
-              <small>{attempt.contentTitle ?? attempt.contentId} | {attempt.questionTopic ?? attempt.questionId}</small>
-            </div>
-            <span className={`status ${attempt.isCorrect ? "published" : "draft"}`}>{attempt.isCorrect ? "correct" : "incorrect"}</span>
-            <div><span>Attempt</span><strong>{attempt.attemptNumber}</strong></div>
-            <div><span>Score</span><strong>{attempt.score}/{attempt.maxScore}</strong></div>
-            <div><span>Feedback</span><strong>{attempt.feedbackExposed ? "Shown" : "Hidden"}</strong></div>
-            <time dateTime={attempt.submittedAt}>{formatDateTime(attempt.submittedAt)}</time>
-          </section>
-        )) : <Empty text="No question attempts match the current filters." />}
+        {filteredAttempts.length ? filteredAttempts.map((attempt) => {
+          const manualGradeStatus = attempt.manualGradingStatus ?? "not_required";
+          const draft = gradeDraftFor(attempt);
+          return (
+            <section className="attempt-row" key={attempt.id}>
+              <div>
+                <strong>{attempt.learnerName ?? attempt.learnerEmail ?? attempt.userId}</strong>
+                <small>{attempt.contentTitle ?? attempt.contentId} | {attempt.questionTopic ?? attempt.questionId}</small>
+              </div>
+              <span className={`status ${attempt.isCorrect ? "published" : manualGradeStatus === "pending" ? "pending" : "draft"}`}>{attempt.isCorrect ? "correct" : manualGradeStatus === "pending" ? "pending" : "incorrect"}</span>
+              <div><span>Attempt</span><strong>{attempt.attemptNumber}</strong></div>
+              <div><span>Score</span><strong>{attempt.manualGrade ? `${attempt.manualGrade.score}/${attempt.manualGrade.maxScore}` : `${attempt.score}/${attempt.maxScore}`}</strong></div>
+              <div><span>Manual</span><strong>{manualGradeStatus.replace("_", " ")}</strong></div>
+              <time dateTime={attempt.submittedAt}>{formatDateTime(attempt.submittedAt)}</time>
+              {manualGradeStatus !== "not_required" ? (
+                <div className="manual-grade-editor">
+                  <label className="inline-select">
+                    <span>Manual score</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={attempt.maxScore}
+                      step="0.01"
+                      value={draft.score}
+                      onChange={(event) => updateGradeDraft(attempt.id, { score: event.target.value })}
+                    />
+                  </label>
+                  <label className="inline-select">
+                    <span>Feedback</span>
+                    <textarea value={draft.feedback} onChange={(event) => updateGradeDraft(attempt.id, { feedback: event.target.value })} />
+                  </label>
+                  <button type="button" onClick={() => submitGrade(attempt)}>Save Grade</button>
+                  {attempt.manualGrade ? <small>Graded by {attempt.manualGrade.gradedByUserId} at {formatDateTime(attempt.manualGrade.gradedAt)}</small> : <small>Awaiting instructor grade</small>}
+                </div>
+              ) : null}
+            </section>
+          );
+        }) : <Empty text="No question attempts match the current filters." />}
       </div>
     </article>
   );
@@ -636,7 +989,20 @@ function ContentDeliveryManager({ content, cohorts, onUpdateStatus, onAssignCont
   );
 }
 
-function AdminConsole({ cohorts, auditEvents, onAssign, showAudit = true }: { cohorts: AdminCohort[]; auditEvents: AdminAuditEvent[]; onAssign: (userId: string, squadNumber: SquadNumber) => void; showAudit?: boolean }) {
+function AdminConsole({
+  cohorts,
+  auditEvents,
+  onAssign,
+  onLoadAuditEvents,
+  showAudit = true
+}: {
+  cohorts: AdminCohort[];
+  auditEvents: AdminAuditEvent[];
+  onAssign: (userId: string, squadNumber: SquadNumber) => void;
+  onLoadAuditEvents: (action?: AdminAuditAction) => void;
+  showAudit?: boolean;
+}) {
+  const [auditAction, setAuditAction] = useState<AdminAuditAction | "">("");
   return (
     <article className="admin-console">
       <h2>PACT Users</h2>
@@ -663,14 +1029,28 @@ function AdminConsole({ cohorts, auditEvents, onAssign, showAudit = true }: { co
         )) : <Empty text="No cohorts or enrolled users are available for this admin session." />}
       </div>
       {showAudit ? <section className="audit-panel">
-        <header><h3>Assignment History</h3><small>{auditEvents.length} recent changes</small></header>
+        <header className="audit-panel-head">
+          <div><h3>Audit History</h3><small>{auditEvents.length} recent events</small></div>
+          <div className="section-actions">
+            <label className="inline-select">
+              <span>Event type</span>
+              <select value={auditAction} onChange={(event) => setAuditAction(event.target.value as AdminAuditAction | "")}>
+                <option value="">All events</option>
+                <option value="squad.assignment.changed">Squad assignments</option>
+                <option value="question.manual_grade.upserted">Manual grading</option>
+                <option value="ags.queue.process_due.triggered">AGS queue processing</option>
+              </select>
+            </label>
+            <button type="button" onClick={() => onLoadAuditEvents(auditAction || undefined)}>Apply</button>
+          </div>
+        </header>
         <div className="audit-list">
           {auditEvents.length ? auditEvents.map((event) => (
             <div className="audit-row" key={event.id}>
-              <div><strong>{event.targetName ?? event.targetUserId}</strong><small>{event.cohortId} - assigned to {event.nextSquadNumber ? `Squad ${event.nextSquadNumber}` : event.nextSquadId}</small></div>
+              <div><strong>{auditTitle(event)}</strong><small>{auditDetail(event)}</small></div>
               <div><span>{event.actorName ?? event.actorUserId}</span><time dateTime={event.createdAt}>{formatDateTime(event.createdAt)}</time></div>
             </div>
-          )) : <Empty text="No squad assignment changes have been recorded yet." />}
+          )) : <Empty text="No audit events match the selected filters." />}
         </div>
       </section> : null}
     </article>
@@ -698,12 +1078,147 @@ function Empty({ text: message }: { text: string }) {
   return <div className="empty">{message}</div>;
 }
 
+function auditTitle(event: AdminAuditEvent) {
+  if (event.action === "squad.assignment.changed") return event.targetName ?? event.targetUserId;
+  if (event.action === "question.manual_grade.upserted") return `Manual grade ${event.nextScore ?? "saved"}/${event.maxScore ?? "?"}`;
+  return `AGS queue processed: ${event.retried ?? 0} retried`;
+}
+
+function auditDetail(event: AdminAuditEvent) {
+  if (event.action === "squad.assignment.changed") {
+    return `${event.cohortId} - assigned to ${event.nextSquadNumber ? `Squad ${event.nextSquadNumber}` : event.nextSquadId ?? "updated squad"}`;
+  }
+  if (event.action === "question.manual_grade.upserted") {
+    const feedback = event.feedbackChanged ? "feedback changed" : "feedback unchanged";
+    return `${event.cohortId} - ${event.contentId ?? "content"} / ${event.questionId ?? "question"} / ${event.attemptId ?? "attempt"} - ${feedback}`;
+  }
+  return `${event.cohortId} - scanned ${event.scanned ?? 0}, failed ${event.failed ?? 0}, exhausted ${event.exhausted ?? 0}, limit ${event.limit ?? "default"}`;
+}
+
+function completionDisplayState(input: {
+  assignmentCompletion?: AssignmentCompletion;
+  completionScore?: { score: number; maxScore: number; progressPercent: number; agsStatus: string };
+  result?: { score: number; maxScore: number };
+  persistedProgress?: ContentProgress;
+  ownScore?: ScoreboardEntry;
+  content?: PactContent;
+}) {
+  if (input.assignmentCompletion?.status === "pending_manual") {
+    return {
+      tone: "pending",
+      label: "Instructor review",
+      value: "Pending grade",
+      detail: "Final score waits for manual grading."
+    };
+  }
+  if (input.assignmentCompletion?.status === "failed_must_pass") {
+    return {
+      tone: "failed",
+      label: "Must-pass gate",
+      value: "Not submitted",
+      detail: "A required question must be passed before final score submission."
+    };
+  }
+  if (input.completionScore?.agsStatus === "pending") {
+    return {
+      tone: "pending",
+      label: "LMS sync queued",
+      value: `${input.completionScore.score}/${input.completionScore.maxScore}`,
+      detail: "PACT saved the final score and queued LMS grade sync."
+    };
+  }
+  if (input.completionScore?.agsStatus === "failed") {
+    return {
+      tone: "failed",
+      label: "LMS sync retry needed",
+      value: `${input.completionScore.score}/${input.completionScore.maxScore}`,
+      detail: "PACT saved the final score; an instructor can retry LMS sync."
+    };
+  }
+  if (input.assignmentCompletion?.status === "complete") {
+    return {
+      tone: "success",
+      label: "Completed",
+      value: `${input.assignmentCompletion.score}/${input.assignmentCompletion.maxScore}`,
+      detail: "Final score has been submitted."
+    };
+  }
+  if (input.result) {
+    return {
+      tone: "success",
+      label: "Submitted",
+      value: `${input.result.score}/${input.result.maxScore}`,
+      detail: "This content score was submitted."
+    };
+  }
+  if (input.persistedProgress?.status === "submitted") {
+    return {
+      tone: "success",
+      label: "Previously submitted",
+      value: `${input.persistedProgress.score ?? 0}/${input.persistedProgress.maxScore ?? input.content?.maxScore ?? 0}`,
+      detail: "Saved completion was restored from PACT."
+    };
+  }
+  if (input.ownScore) {
+    return {
+      tone: "neutral",
+      label: "Course progress",
+      value: `${input.ownScore.totalScore}/${input.ownScore.maxScore}`,
+      detail: `${input.ownScore.progressPercent}% progress across scored content.`
+    };
+  }
+  return {
+    tone: "neutral",
+    label: "Not submitted",
+    value: "In progress",
+    detail: "Submit content to publish progress through PACT."
+  };
+}
+
+function submissionSummary(completion: AssignmentCompletion | undefined, progress: ContentProgress | undefined, answeredCount: number, questionCount: number) {
+  if (completion?.status === "pending_manual") return "Pending instructor review";
+  if (completion?.status === "failed_must_pass") return "Must-pass requirement failed";
+  if (completion?.status === "complete") return "Completed and submitted";
+  if (progress?.status === "submitted") return "Previously submitted";
+  return `${answeredCount}/${questionCount} questions submitted`;
+}
+
+function feedbackText(feedback: QuestionSubmissionFeedback | undefined) {
+  if (typeof feedback?.feedback === "string") return feedback.feedback;
+  if (isLocalizedFeedback(feedback?.feedback)) return text(feedback.feedback);
+  return undefined;
+}
+
+function isLocalizedFeedback(value: unknown): value is { en?: string } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function feedbackClass(status: QuestionSubmissionFeedback["status"]) {
+  if (status === "correct") return "correct";
+  if (status === "needs_review") return "pending";
+  return "incorrect";
+}
+
+function feedbackLabel(status: QuestionSubmissionFeedback["status"]) {
+  if (status === "needs_review") return "Needs review";
+  if (status === "correct") return "Correct";
+  if (status === "partial") return "Partial credit";
+  return "Incorrect";
+}
+
 function hasAnswerValue(value?: AnswerValue) {
   if (value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "boolean") return true;
   return Object.values(value).some((item) => item.trim().length > 0);
+}
+
+function statusClassForAgs(status: AgsPublishAttemptStatus) {
+  if (status === "published" || status === "skipped_duplicate") return "published";
+  if (status === "failed" || status === "retry_exhausted") return "failed";
+  if (status === "pending") return "pending";
+  return "archived";
 }
 
 function emptyContentMessage(session?: PactSession) {
