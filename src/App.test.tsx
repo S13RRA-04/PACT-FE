@@ -25,6 +25,9 @@ describe("PACT admin console", () => {
       if (path === "/api/v1/content" || path === "/api/v1/admin/content") {
         return jsonResponse([]);
       }
+      if (path === "/api/v1/content/progress") {
+        return jsonResponse({ progress: [] });
+      }
       if (path === "/api/v1/dashboard/scoreboard") {
         return jsonResponse({ entries: [] });
       }
@@ -112,7 +115,7 @@ describe("PACT admin console", () => {
 
     await userEvent.type(screen.getByLabelText(/PACT session token/i), "admin-token");
     await userEvent.click(screen.getByRole("button", { name: "Sync" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Control" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Instructor Delivery" }));
 
     expect(await screen.findByRole("heading", { name: "Control Plane" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "PACT Users" })).toBeInTheDocument();
@@ -157,6 +160,9 @@ describe("PACT admin console", () => {
       }
       if (path === "/api/v1/content") {
         return jsonResponse([]);
+      }
+      if (path === "/api/v1/content/progress") {
+        return jsonResponse({ progress: [] });
       }
       if (path === "/api/v1/dashboard/scoreboard") {
         return jsonResponse({ entries: [] });
