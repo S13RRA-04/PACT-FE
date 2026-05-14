@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type PactRole = "admin" | "instructor" | "learner";
+type ContentType = "module" | "challenge" | "game" | "assessment";
 type ContentStatus = "draft" | "published" | "archived";
 type QuestionKind = "multiple_choice" | "true_false" | "fill_blank" | "drag_match";
 
@@ -78,7 +79,7 @@ type PactQuestion = {
 
 type PactContent = {
   id: string;
-  type: "module" | "challenge" | "game";
+  type: ContentType;
   title: string;
   prompt: string;
   maxScore: number;
@@ -174,9 +175,9 @@ export function App() {
       if (!contentResponse.some((item) => item.id === selectedContentId)) {
         setSelectedContentId(contentResponse[0]?.id);
       }
-      setStatus(`Module set to ${nextStatus}.`);
+      setStatus(`Content set to ${nextStatus}.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to update module gate.");
+      setStatus(error instanceof Error ? error.message : "Unable to update content gate.");
     }
   }
 
@@ -195,9 +196,9 @@ export function App() {
       });
       setResult({ score, maxScore });
       setScoreboard((await client.getScoreboard()).entries);
-      setStatus("Module score submitted.");
+      setStatus("Content score submitted.");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Unable to submit module score.");
+      setStatus(error instanceof Error ? error.message : "Unable to submit content score.");
     }
   }
 
@@ -206,10 +207,10 @@ export function App() {
       <aside className="side">
         <div className="brand">
           <span>PACT</span>
-          <strong>Module Hub</strong>
+          <strong>Content Hub</strong>
         </div>
         <nav>
-          <button className={view === "modules" ? "active" : ""} type="button" onClick={() => setView("modules")}>Modules</button>
+          <button className={view === "modules" ? "active" : ""} type="button" onClick={() => setView("modules")}>Content</button>
           {canManage ? <button className={view === "manage" ? "active" : ""} type="button" onClick={() => setView("manage")}>Gate</button> : null}
           <button className={view === "scoreboard" ? "active" : ""} type="button" onClick={() => setView("scoreboard")}>Scoreboard</button>
         </nav>
@@ -218,8 +219,8 @@ export function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <h1>PACT Modules</h1>
-            <p>Mongo-backed modules, instructor-controlled availability, and score sync.</p>
+            <h1>PACT Content</h1>
+            <p>Mongo-backed learning content, instructor-controlled availability, and score sync.</p>
           </div>
           <button type="button" onClick={() => void loadDashboard()} disabled={!isConnected}>Sync</button>
         </header>
@@ -265,7 +266,7 @@ export function App() {
 function ModuleList({ content, selectedContentId, onSelect }: { content: PactContent[]; selectedContentId?: string; onSelect: (id: string) => void }) {
   return (
     <article className="module-list">
-      <h2>Assigned Modules</h2>
+      <h2>Available Content</h2>
       <div className="list">
         {content.length ? content.map((item) => (
           <button className={`module-row ${item.id === selectedContentId ? "selected" : ""}`} key={item.id} type="button" onClick={() => onSelect(item.id)}>
@@ -273,7 +274,7 @@ function ModuleList({ content, selectedContentId, onSelect }: { content: PactCon
             <strong>{item.title}</strong>
             <small>{item.questionCount ?? item.questions?.length ?? 0} questions - {item.maxScore} pts</small>
           </button>
-        )) : <Empty text="No published modules are assigned to this session." />}
+        )) : <Empty text="No published content is assigned to this session." />}
       </div>
     </article>
   );
@@ -286,7 +287,7 @@ function ModuleRunner({ content, answers, result, onAnswer, onSubmit }: {
   onAnswer: (questionId: string, value: AnswerValue) => void;
   onSubmit: () => void;
 }) {
-  if (!content) return <article><Empty text="Sync PACT to load assigned modules." /></article>;
+  if (!content) return <article><Empty text="Sync PACT to load assigned content." /></article>;
   const questions = content.questions ?? [];
 
   return (
@@ -301,11 +302,11 @@ function ModuleRunner({ content, answers, result, onAnswer, onSubmit }: {
 
       {questions.length ? questions.map((question, index) => (
         <QuestionCard key={question.id} index={index + 1} question={question} value={answers[question.id]} onChange={(value) => onAnswer(question.id, value)} />
-      )) : <Empty text="This module does not have questions loaded yet." />}
+      )) : <Empty text="This content does not have questions loaded yet." />}
 
       <div className="submit-row">
         {result ? <strong>{result.score}/{result.maxScore} submitted</strong> : <span>{Object.keys(answers).length}/{questions.length} answered</span>}
-        <button type="button" onClick={onSubmit} disabled={!questions.length}>Submit Module</button>
+        <button type="button" onClick={onSubmit} disabled={!questions.length}>Submit Content</button>
       </div>
     </article>
   );
@@ -393,20 +394,20 @@ function QuestionInput({ question, value, onChange }: { question: PactQuestion; 
 function GateManager({ content, onUpdate }: { content: PactContent[]; onUpdate: (id: string, status: ContentStatus) => void }) {
   return (
     <article>
-      <h2>Module Gate</h2>
+      <h2>Content Gate</h2>
       <div className="list">
         {content.length ? content.map((item) => (
           <div className="gate-row" key={item.id}>
             <span className={`status ${item.status ?? "draft"}`}>{item.status ?? "draft"}</span>
             <strong>{item.title}</strong>
-            <small>{item.questionCount ?? item.questions?.length ?? 0} questions</small>
+            <small>{contentTypeLabel(item.type)} - {item.questionCount ?? item.questions?.length ?? 0} questions</small>
             <div>
               {(["draft", "published", "archived"] as ContentStatus[]).map((status) => (
                 <button disabled={item.status === status} key={status} type="button" onClick={() => onUpdate(item.id, status)}>{status}</button>
               ))}
             </div>
           </div>
-        )) : <Empty text="No modules available to manage." />}
+        )) : <Empty text="No content available to manage." />}
       </div>
     </article>
   );
@@ -460,6 +461,10 @@ function scoreQuestion(question: PactQuestion, value?: AnswerValue) {
 
 function text(value?: LocalizedText) {
   return value?.en ?? "";
+}
+
+function contentTypeLabel(type: ContentType) {
+  return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
 function toggle(selected: string[], optionId: string) {
