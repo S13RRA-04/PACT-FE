@@ -24,7 +24,6 @@ function requireApiBaseUrl() {
 }
 
 export function App() {
-  const [sessionToken, setSessionToken] = useState(() => window.localStorage.getItem("pact_session") ?? "");
   const [session, setSession] = useState<PactSession | undefined>();
   const [scoreboard, setScoreboard] = useState<ScoreboardEntry[]>([]);
   const [diagnostic, setDiagnostic] = useState<SessionDiagnostic | undefined>();
@@ -41,12 +40,12 @@ export function App() {
   const [result, setResult] = useState<{ score: number; maxScore: number } | undefined>();
   const [view, setView] = useState<View>("modules");
   const [contentFilter, setContentFilter] = useState<ContentFilter>("all");
-  const [status, setStatus] = useState("Connect with an LMS launch session token.");
-  const isConnected = sessionToken.trim().length > 0;
+  const [status, setStatus] = useState("Launch PACT from the LMS to begin.");
+  const isConnected = Boolean(session);
   const canManage = session?.role === "admin" || session?.role === "instructor";
   const canAdmin = session?.role === "admin";
 
-  const client = useMemo(() => new PactClient(apiBaseUrl, sessionToken), [sessionToken]);
+  const client = useMemo(() => new PactClient(apiBaseUrl), []);
   const filteredContent = useMemo(
     () => content.filter((item) => contentFilter === "all" || item.type === contentFilter),
     [content, contentFilter]
@@ -63,20 +62,9 @@ export function App() {
   }, [content]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const launchedSessionToken = params.get("sessionToken");
-    if (!launchedSessionToken) return;
-    setSessionToken(launchedSessionToken);
-    window.localStorage.setItem("pact_session", launchedSessionToken);
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    setStatus("LMS launch session received.");
-    void syncDashboard(new PactClient(apiBaseUrl, launchedSessionToken));
-  }, []);
-
-  async function saveSession() {
-    window.localStorage.setItem("pact_session", sessionToken.trim());
-    setStatus("Session saved.");
-  }
+    clearLegacySessionHandoff();
+    void syncDashboard(client);
+  }, [client]);
 
   async function loadDashboard() {
     await syncDashboard(client);
@@ -91,6 +79,7 @@ export function App() {
         pactClient.getContentProgress(),
         pactClient.getScoreboard()
       ]);
+      pactClient.setCsrfToken(sessionResponse.csrfToken);
       setSession(sessionResponse);
       setContent(contentResponse);
       setProgress(progressResponse.progress);
@@ -299,11 +288,6 @@ export function App() {
         </header>
 
         <section className="session-panel">
-          <div className="session-input">
-            <label htmlFor="session">PACT session token</label>
-            <input id="session" value={sessionToken} onChange={(event) => setSessionToken(event.target.value)} placeholder="Paste the token returned from /api/v1/lti/launch" />
-            <button type="button" onClick={() => void saveSession()}>Save</button>
-          </div>
           <dl className="session-strip">
             <div><dt>Session</dt><dd>{session ? session.userId : "Not connected"}</dd></div>
             <div><dt>Course</dt><dd>{session?.courseId ?? "Awaiting launch"}</dd></div>
@@ -369,6 +353,19 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function clearLegacySessionHandoff() {
+  if (window.location.hash.includes("sessionToken=")) {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+  window.localStorage.removeItem("pact_session");
+  try {
+    const payload = JSON.parse(window.name) as { type?: unknown };
+    if (payload.type === "pact_session") window.name = "";
+  } catch {
+    // Ignore unrelated window names from the browser or hosting environment.
+  }
 }
 
 function themeClassFor(role: PactSession["role"], squadNumber?: SquadNumber) {

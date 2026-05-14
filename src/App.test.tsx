@@ -6,6 +6,7 @@ import { App } from "./App";
 describe("PACT admin console", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.name = "";
     vi.unstubAllGlobals();
   });
 
@@ -19,7 +20,8 @@ describe("PACT admin console", () => {
           userId: "admin-1",
           role: "admin",
           courseId: "course-a",
-          cohortId: "cohort-a"
+          cohortId: "cohort-a",
+          csrfToken: "csrf-admin"
         });
       }
       if (path === "/api/v1/content" || path === "/api/v1/admin/content") {
@@ -121,6 +123,7 @@ describe("PACT admin console", () => {
       }
       if (path === "/api/v1/admin/users/learner-1/squad" && init?.method === "PATCH") {
         expect(JSON.parse(String(init.body))).toEqual({ squadNumber: "3" });
+        expect(new Headers(init.headers).get("x-csrf-token")).toBe("csrf-admin");
         return jsonResponse({
           id: "learner-1",
           name: "Learner One",
@@ -137,8 +140,7 @@ describe("PACT admin console", () => {
 
     render(<App />);
 
-    await userEvent.type(screen.getByLabelText(/PACT session token/i), "admin-token");
-    await userEvent.click(screen.getByRole("button", { name: "Sync" }));
+    expect(screen.queryByLabelText(/PACT session token/i)).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: "Instructor Delivery" }));
 
     expect(await screen.findByRole("heading", { name: "Control Plane" })).toBeInTheDocument();
@@ -201,9 +203,6 @@ describe("PACT admin console", () => {
 
     const { container } = render(<App />);
 
-    await userEvent.type(screen.getByLabelText(/PACT session token/i), "learner-token");
-    await userEvent.click(screen.getByRole("button", { name: "Sync" }));
-
     expect(await screen.findByText("Green - Squad 3")).toBeInTheDocument();
     expect(container.querySelector("main")).toHaveClass("theme-squad-3");
   });
@@ -244,9 +243,6 @@ describe("PACT admin console", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<App />);
-
-    await userEvent.type(screen.getByLabelText(/PACT session token/i), "legacy-token");
-    await userEvent.click(screen.getByRole("button", { name: "Sync" }));
 
     expect(await screen.findByRole("heading", { name: "Legacy Module", level: 2 })).toBeInTheDocument();
     expect(screen.getAllByText("PACT content synced from Mongo.").length).toBeGreaterThan(0);

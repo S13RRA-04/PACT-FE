@@ -1,7 +1,13 @@
 import type { AdminAuditEvent, AdminCohort, AdminUser, AnswerValue, ContentProgress, ContentStatus, PactContent, PactSession, QuestionAttempt, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
 
 export class PactClient {
-  constructor(private readonly baseUrl: string, private readonly token: string) {}
+  private csrfToken: string | undefined;
+
+  constructor(private readonly baseUrl: string) {}
+
+  setCsrfToken(token: string | undefined) {
+    this.csrfToken = token;
+  }
 
   async getSession() {
     return this.request<PactSession>("/api/v1/session");
@@ -128,9 +134,11 @@ export class PactClient {
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
-    headers.set("authorization", `Bearer ${this.token}`);
     if (init.body) headers.set("content-type", "application/json");
-    const response = await fetch(`${this.baseUrl}${path}`, { ...init, headers });
+    if (this.csrfToken && init.method && !["GET", "HEAD", "OPTIONS"].includes(init.method.toUpperCase())) {
+      headers.set("x-csrf-token", this.csrfToken);
+    }
+    const response = await fetch(`${this.baseUrl}${path}`, { ...init, credentials: "include", headers });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new PactApiError(response.status, payload.error?.message ?? "PACT API request failed");

@@ -12,6 +12,7 @@ export type PactSession = {
   squadId?: string;
   squadNumber?: SquadNumber;
   contentType?: ContentType;
+  csrfToken?: string;
 };
 
 export type ScoreboardEntry = {
