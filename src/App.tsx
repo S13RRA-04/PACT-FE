@@ -5,6 +5,7 @@ import { ContentWorkspace } from "./features/learningWorkspace";
 import type { MechanicOutcome } from "./features/learnerMechanicsTypes";
 import { Scoreboard } from "./features/scoreboard";
 import { SessionDiagnosticSummary } from "./features/pactShared";
+import { SquadLogo } from "./components/pact";
 import { contextSquadLabel, initialsFor, roleLabel, themeLabelFor } from "./lib/format";
 import { PactClient } from "./lib/pactClient";
 import { scoreQuestion } from "./lib/scoring";
@@ -521,7 +522,12 @@ export function App() {
             <h1>{view === "scoreboard" ? "Mission Leaderboard" : view === "control" ? "Control Plane" : selectedContent?.title ?? "PACT Content Workspace"}</h1>
           </div>
           <div className="topbar-actions">
-            {session ? <span className="role-chip">{themeLabelFor(session)}</span> : null}
+            {session ? (
+              <span className="role-chip">
+                <SquadLogo squadNumber={session.squadNumber} className="role-chip-logo" decorative />
+                {themeLabelFor(session)}
+              </span>
+            ) : null}
             {view === "modules" && selectedContent ? (
               <span className="shortcut-control">
                 <button

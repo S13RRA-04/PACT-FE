@@ -14,6 +14,7 @@ export type PactSession = {
   squadId?: string;
   squadNumber?: SquadNumber;
   contentType?: ContentType;
+  contentId?: string;
   csrfToken?: string;
 };
 

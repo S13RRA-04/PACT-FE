@@ -1,11 +1,12 @@
 import { useState } from "react";
-import type { ScoreboardEntry } from "../types";
-import { MissionProgressCard, ProgressTrack } from "../components/pact";
+import type { ScoreboardEntry, SquadNumber } from "../types";
+import { MissionProgressCard, ProgressTrack, SquadLogo } from "../components/pact";
 import { Empty } from "./pactShared";
 
 type SquadSummary = {
   key: string;
   label: string;
+  squadNumber?: SquadNumber;
   count: number;
   totalScore: number;
   maxScore: number;
@@ -64,8 +65,8 @@ export function Scoreboard({ entries }: { entries: ScoreboardEntry[] }) {
           type="button"
           onClick={() => setSelectedSquad("all")}
         >
-          <div>
-            <span>All Squads</span>
+          <div className="scoreboard-squad-card-head">
+            <span className="scoreboard-squad-cluster">All Squads</span>
             <strong>{averageProgress}%</strong>
           </div>
           <ProgressTrack value={averageProgress} />
@@ -98,8 +99,11 @@ export function Scoreboard({ entries }: { entries: ScoreboardEntry[] }) {
 function SquadCard({ squad, active, onSelect }: { squad: SquadSummary; active: boolean; onSelect: (key: string) => void }) {
   return (
     <button aria-pressed={active} className={`scoreboard-squad-card ${squad.key} ${active ? "active" : ""}`} type="button" onClick={() => onSelect(squad.key)}>
-      <div>
-        <span>{squad.label}</span>
+      <div className="scoreboard-squad-card-head">
+        <span className="scoreboard-squad-cluster">
+          <SquadLogo squadNumber={squad.squadNumber} className="scoreboard-squad-logo" decorative />
+          {squad.label}
+        </span>
         <strong>{squad.progressPercent}%</strong>
       </div>
       <ProgressTrack value={squad.progressPercent} />
@@ -111,7 +115,10 @@ function SquadCard({ squad, active, onSelect }: { squad: SquadSummary; active: b
 function LeaderboardRow({ entry, rank }: { entry: ScoreboardEntry; rank: number }) {
   return (
     <div className={`leaderboard-row ${entry.squadNumber ? `squad-${entry.squadNumber}` : "solo"}`}>
-      <span className="rank-medal">{rank}</span>
+      <span className="leaderboard-mark">
+        <span className="rank-medal">{rank}</span>
+        <SquadLogo squadNumber={entry.squadNumber} className="leaderboard-squad-logo" decorative />
+      </span>
       <div className="leaderboard-identity">
         <strong>{entry.name ?? entry.userId}</strong>
         <small>{entry.squadNumber ? `Squad ${entry.squadNumber}` : "Solo operator"}</small>
@@ -131,6 +138,7 @@ function summarizeSquads(entries: ScoreboardEntry[]) {
     const current = map.get(key) ?? {
       key,
       label: entry.squadNumber ? `Squad ${entry.squadNumber}` : "Solo",
+      squadNumber: entry.squadNumber,
       count: 0,
       totalScore: 0,
       maxScore: 0,

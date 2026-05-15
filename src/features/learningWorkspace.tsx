@@ -4,7 +4,7 @@ import { contentTypeLabel, contextSquadLabel } from "../lib/format";
 import { readBooleanPreference, UI_PREF_KEYS, writeBooleanPreference } from "../lib/uiPreferences";
 import { ModuleRunner } from "./learnerMissionRunner";
 import type { MechanicOutcome } from "./learnerMechanicsTypes";
-import { contentTypeCounts, contentTypeModeLabel, InteractiveGlobe, MissionProgressCard, MissionQueueItem, MissionTypeCard, OperatorHud, ProgressTrack, type HudCallout } from "../components/pact";
+import { contentTypeCounts, contentTypeModeLabel, MissionProgressCard, MissionQueueItem, MissionTypeCard, OperatorHud, ProgressTrack, SquadLogo, type HudCallout } from "../components/pact";
 import { Empty } from "./pactShared";
 
 export function ContentWorkspace({
@@ -177,9 +177,12 @@ function MissionOverview({
   return (
     <article className="mission-overview">
       <div className="mission-copy">
-        <span>{selectedContent ? `${contentTypeLabel(selectedContent.type)} operation` : "PACT operation"}</span>
-        <strong className="mission-title">{selectedContent?.title ?? "Choose a PACT mission"}</strong>
-        <p>{selectedContent?.prompt ?? "Select a module, challenge, game, or assessment to begin."}</p>
+        <SquadLogo squadNumber={session?.squadNumber} className="mission-squad-logo" decorative />
+        <div>
+          <span>{selectedContent ? `${contentTypeLabel(selectedContent.type)} operation` : "PACT operation"}</span>
+          <strong className="mission-title">{selectedContent?.title ?? "Choose a PACT mission"}</strong>
+          <p>{selectedContent?.prompt ?? "Select a module, challenge, game, or assessment to begin."}</p>
+        </div>
       </div>
       <MissionProgressCard
         value={progressPercent}
@@ -200,7 +203,7 @@ function MissionOverview({
         onFocusedChange={onFocusedChange}
         onQueueCollapsedChange={onQueueCollapsedChange}
       />
-      <InteractiveGlobe autoRotate={false} className="mission-globe" interactive={false} />
+      <div className="mission-circuit-wall" aria-hidden="true" />
     </article>
   );
 }

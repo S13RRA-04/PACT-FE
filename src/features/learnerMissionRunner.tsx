@@ -160,6 +160,11 @@ function QuestionCard({
         ? (feedbackText(submissionFeedback) ?? text(question.feedback.correct)) || "Correct. This response earned full credit."
         : (feedbackText(submissionFeedback) ?? text(question.feedback.incorrect)) || "Review this response before moving on."
     : undefined;
+  const guidance = isSubmitted
+    ? "Answer locked. Review the feedback, then continue when ready."
+    : hasAnswer
+      ? "Answer selected. Submit to receive feedback and save progress."
+      : "Choose an answer to enable Submit Question.";
   return (
     <section className={`question ${isSubmitted ? "answered" : ""}`}>
       <header>
@@ -170,7 +175,10 @@ function QuestionCard({
         <small>{index}/{questionCount} | {question.scoring.points} pts | {question.scoring.difficulty}</small>
       </header>
       <p>{text(question.stem)}</p>
-      <QuestionInput question={question} value={value} onChange={onChange} />
+      <div className={`question-guidance ${isSubmitted ? "locked" : hasAnswer ? "ready" : ""}`} role="status" aria-live="polite">
+        {guidance}
+      </div>
+      <QuestionInput question={question} value={value} onChange={onChange} disabled={isSubmitted} />
       {isSubmitted ? (
         <div className={`answer-feedback ${feedbackClass(feedbackStatus)}`} role="status">
           <strong>{feedbackLabel(feedbackStatus)} | {displayedPoints}/{possiblePoints} points</strong>
@@ -188,15 +196,15 @@ function QuestionCard({
   );
 }
 
-function QuestionInput({ question, value, onChange }: { question: PactQuestion; value?: AnswerValue; onChange: (value: AnswerValue) => void }) {
+function QuestionInput({ question, value, disabled = false, onChange }: { question: PactQuestion; value?: AnswerValue; disabled?: boolean; onChange: (value: AnswerValue) => void }) {
   const payload = question.payload;
   if (payload.kind === "true_false") {
     return (
       <div className="choice-grid two">
         {[true, false].map((option) => (
-          <button className={value === option ? "selected" : ""} key={String(option)} type="button" onClick={() => onChange(option)}>
+          <button className={value === option ? "selected" : ""} key={String(option)} type="button" disabled={disabled} aria-pressed={value === option} onClick={() => onChange(option)}>
             <span className="choice-key">{option ? "T" : "F"}</span>
-            <span>{option ? "True" : "False"}</span>
+            <span className="choice-text">{option ? "True" : "False"}</span>
           </button>
         ))}
       </div>
@@ -210,7 +218,7 @@ function QuestionInput({ question, value, onChange }: { question: PactQuestion; 
         {(payload.blanks ?? []).map((blank) => (
           <label key={blank.id}>
             <span>{text(blank.label)}</span>
-            <input value={current[blank.id] ?? ""} onChange={(event) => onChange({ ...current, [blank.id]: event.target.value })} />
+            <input value={current[blank.id] ?? ""} disabled={disabled} onChange={(event) => onChange({ ...current, [blank.id]: event.target.value })} />
           </label>
         ))}
       </div>
@@ -224,7 +232,7 @@ function QuestionInput({ question, value, onChange }: { question: PactQuestion; 
         {(payload.sources ?? []).map((source) => (
           <label key={source.id}>
             <span>{text(source.text)}</span>
-            <select value={current[source.id] ?? ""} onChange={(event) => onChange({ ...current, [source.id]: event.target.value })}>
+            <select value={current[source.id] ?? ""} disabled={disabled} onChange={(event) => onChange({ ...current, [source.id]: event.target.value })}>
               <option value="">Choose match</option>
               {(payload.targets ?? []).map((target) => <option key={target.id} value={target.id}>{text(target.text)}</option>)}
             </select>
@@ -238,22 +246,28 @@ function QuestionInput({ question, value, onChange }: { question: PactQuestion; 
   const allowsMultiple = payload.selectionMode === "multiple";
   return (
     <div className="choice-grid">
-      {(payload.options ?? []).map((option) => {
+      {(payload.options ?? []).map((option, optionIndex) => {
         const isSelected = selected.includes(option.id);
         return (
           <button
             className={isSelected ? "selected" : ""}
             key={option.id}
             type="button"
+            disabled={disabled}
+            aria-pressed={isSelected}
             onClick={() => onChange(allowsMultiple ? toggle(selected, option.id) : option.id)}
           >
-            <span className="choice-key">{option.id.toUpperCase()}</span>
-            <span>{text(option.text)}</span>
+            <span className="choice-key">{choiceLabel(optionIndex)}</span>
+            <span className="choice-text">{text(option.text)}</span>
           </button>
         );
       })}
     </div>
   );
+}
+
+function choiceLabel(index: number) {
+  return String.fromCharCode(65 + index);
 }
 
 function submissionSummary(completion: AssignmentCompletion | undefined, progress: ContentProgress | undefined, answeredCount: number, questionCount: number) {

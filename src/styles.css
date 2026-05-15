@@ -101,6 +101,28 @@ button:hover:not(:disabled) {
   }
 }
 
+@keyframes pact-circuit-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+    filter: drop-shadow(0 0 0 rgba(var(--accent-rgb), 0));
+  }
+  50% {
+    opacity: 0.52;
+    filter: drop-shadow(0 0 12px rgba(var(--accent-rgb), 0.2));
+  }
+}
+
+@keyframes pact-circuit-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-10px, 4px, 0);
+  }
+}
+
 .secondary-button {
   background: #f2f6f4;
   border: 1px solid var(--border);
@@ -167,31 +189,31 @@ h3 {
 }
 
 .theme-squad-1 {
-  --accent: #b83b3b;
-  --accent-rgb: 184, 59, 59;
-  --accent-soft: #f8e6e3;
-  --accent-dark: #4a1515;
+  --accent: #ff2f5f;
+  --accent-rgb: 255, 47, 95;
+  --accent-soft: #ffe8ef;
+  --accent-dark: #560015;
 }
 
 .theme-squad-2 {
-  --accent: #b77a11;
-  --accent-rgb: 183, 122, 17;
-  --accent-soft: #f8efd8;
-  --accent-dark: #4a3109;
+  --accent: #ffb000;
+  --accent-rgb: 255, 176, 0;
+  --accent-soft: #fff4cf;
+  --accent-dark: #513400;
 }
 
 .theme-squad-3 {
-  --accent: #227c68;
-  --accent-rgb: 34, 124, 104;
-  --accent-soft: #e4f3ec;
-  --accent-dark: #123a30;
+  --accent: #00dca6;
+  --accent-rgb: 0, 220, 166;
+  --accent-soft: #dcfff5;
+  --accent-dark: #003f32;
 }
 
 .theme-squad-4 {
-  --accent: #2c6fba;
-  --accent-rgb: 44, 111, 186;
-  --accent-soft: #e4eefb;
-  --accent-dark: #15385f;
+  --accent: #00a7ff;
+  --accent-rgb: 0, 167, 255;
+  --accent-soft: #e2f5ff;
+  --accent-dark: #00385f;
 }
 
 .theme-neutral {
@@ -419,6 +441,25 @@ nav button.active .nav-icon {
   font-weight: 900;
   padding: 0.54rem 0.8rem;
   white-space: nowrap;
+}
+
+.role-chip {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.46rem;
+}
+
+.squad-logo {
+  display: block;
+  object-fit: contain;
+  user-select: none;
+}
+
+.role-chip-logo {
+  filter: drop-shadow(0 0 10px rgba(var(--accent-rgb), 0.2));
+  height: 1.7rem;
+  margin-block: -0.38rem;
+  width: 1.7rem;
 }
 
 .topbar-actions button {
@@ -1193,6 +1234,58 @@ textarea {
   position: absolute;
 }
 
+.mission-circuit-wall {
+  animation: pact-circuit-float 14s ease-in-out infinite;
+  background:
+    radial-gradient(circle at 70% 38%, rgba(var(--accent-rgb), 0.16), transparent 18rem),
+    linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.08) 42%, rgba(255, 255, 255, 0.44));
+  inset: 0 0 0 auto;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 24%, #000 82%, transparent 100%);
+  opacity: 0.7;
+  pointer-events: none;
+  position: absolute;
+  width: min(60rem, 60%);
+  z-index: 0;
+}
+
+.mission-circuit-wall::before,
+.mission-circuit-wall::after {
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.mission-circuit-wall::before {
+  animation: pact-circuit-pulse 4.8s ease-in-out infinite;
+  color: rgba(var(--accent-rgb), 0.3);
+  content: "01010110 11001001 00110110 10100101 01101001 11010010 00101101\A 11001100 00110101 10110010 01001011 10010110 01100101 11001010\A 00101101 11100010 01010101 10101001 00110110 11001001 01011010\A 10110100 01001101 11010010 00110101 10011010 01101001 00101110\A 01001011 10110110 00101101 11001010 01010110 10010011 01101001\A 11100101 00110110 01001011 10110100 01101001 11001010 00110101\A 00110110 10101001 11001010 01010110 10011001 01101001 00101101\A 11001001 00110110 10100101 01101001 01011010 10110100 01001101\A 01010110 11001001 00110110 10100101 01101001 11010010 00101101";
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: clamp(0.62rem, 0.78vw, 0.86rem);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  line-height: 1.65;
+  opacity: 0.9;
+  overflow: hidden;
+  padding: 0.7rem 0 0 2.4rem;
+  text-shadow: 0 0 12px rgba(var(--accent-rgb), 0.22);
+  transform: perspective(760px) rotateY(-13deg) skewY(-1deg);
+  transform-origin: right center;
+  white-space: pre;
+}
+
+.mission-circuit-wall::after {
+  background:
+    radial-gradient(circle at 18% 50%, rgba(var(--accent-rgb), 0.52) 0 2px, transparent 3px),
+    radial-gradient(circle at 41% 26%, rgba(var(--accent-rgb), 0.44) 0 2px, transparent 3px),
+    radial-gradient(circle at 63% 62%, rgba(var(--accent-rgb), 0.42) 0 2px, transparent 3px),
+    radial-gradient(circle at 80% 36%, rgba(var(--accent-rgb), 0.36) 0 1.5px, transparent 3px),
+    linear-gradient(104deg, transparent 0 18%, rgba(var(--accent-rgb), 0.17) 18% calc(44% + 1px), transparent calc(44% + 1px) 59%, rgba(var(--accent-rgb), 0.14) 59% calc(80% + 1px), transparent calc(80% + 1px)),
+    linear-gradient(15deg, transparent 0 32%, rgba(var(--accent-rgb), 0.12) 32% calc(62% + 1px), transparent calc(62% + 1px)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.62));
+  opacity: 0.58;
+}
+
 .mission-overview::before,
 .scoreboard-hero::before,
 .control-hero::before {
@@ -1284,7 +1377,8 @@ textarea {
   z-index: 1;
 }
 
-.mission-overview > .mission-globe {
+.mission-overview > .mission-globe,
+.mission-overview > .mission-circuit-wall {
   position: absolute;
   z-index: 0;
 }
@@ -1296,8 +1390,28 @@ textarea {
 
 .mission-copy {
   align-content: center;
+  align-items: center;
+  display: grid;
+  gap: 0.95rem;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.mission-copy > div {
   display: grid;
   gap: 0.45rem;
+  min-width: 0;
+}
+
+.mission-squad-logo {
+  align-self: center;
+  filter:
+    drop-shadow(0 0 18px rgba(var(--accent-rgb), 0.3))
+    drop-shadow(0 18px 28px rgba(13, 31, 45, 0.18));
+  height: clamp(4.4rem, 7.4vw, 7rem);
+  justify-self: center;
+  max-width: clamp(4.4rem, 7.4vw, 7rem);
+  transform: translateZ(0);
+  width: clamp(4.4rem, 7.4vw, 7rem);
 }
 
 .mission-copy span,
@@ -1782,23 +1896,47 @@ textarea {
   line-height: 1.45;
 }
 
+.question-guidance {
+  background: rgba(var(--type-accent-rgb), 0.08);
+  border: 1px solid rgba(var(--type-accent-rgb), 0.14);
+  border-radius: 8px;
+  color: #54655f;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 0.72rem 0.85rem;
+}
+
+.question-guidance.ready {
+  background: rgba(var(--type-accent-rgb), 0.14);
+  border-color: rgba(var(--type-accent-rgb), 0.28);
+  color: var(--type-ink);
+}
+
+.question-guidance.locked {
+  background: #eef3f8;
+  border-color: #cfd9e6;
+  color: #42536a;
+}
+
 .choice-grid {
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
 }
 
 .choice-grid button {
-  align-items: center;
+  align-items: start;
   background:
     linear-gradient(90deg, rgba(var(--type-accent-rgb), 0.05), #fff 48%);
   border: 1px solid #dbe6e1;
   color: #10231d;
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: 2.35rem minmax(0, 1fr);
+  gap: 0.9rem;
+  grid-template-columns: 2.55rem minmax(0, 1fr);
   justify-content: stretch;
   min-height: 4.1rem;
   padding: 1rem 1.05rem;
   text-align: left;
+  width: 100%;
 }
 
 .choice-grid button:hover:not(:disabled) {
@@ -1813,6 +1951,21 @@ textarea {
   box-shadow: inset 5px 0 0 var(--type-accent), 0 16px 34px rgba(var(--type-accent-rgb), 0.14);
 }
 
+.choice-grid button:disabled {
+  background: #f9fbfa;
+  border-color: #dbe6e1;
+  color: #6b7a75;
+  cursor: default;
+  opacity: 1;
+}
+
+.choice-grid button.selected:disabled {
+  background: linear-gradient(90deg, rgba(var(--type-accent-rgb), 0.22), #fff);
+  border-color: rgba(var(--type-accent-rgb), 0.74);
+  box-shadow: inset 5px 0 0 var(--type-accent);
+  color: #10231d;
+}
+
 .choice-key {
   align-items: center;
   background: var(--type-accent);
@@ -1825,6 +1978,17 @@ textarea {
   justify-content: center;
   min-width: 2.35rem;
   text-transform: uppercase;
+}
+
+.choice-text {
+  align-self: center;
+  display: block;
+  font-weight: 850;
+  line-height: 1.35;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding-top: 0.1rem;
+  white-space: normal;
 }
 
 .mode-preview,
@@ -2555,9 +2719,10 @@ textarea {
   width: 100%;
 }
 
-.scoreboard-squad-card > div {
+.scoreboard-squad-card-head {
   align-items: baseline;
   display: flex;
+  gap: 0.75rem;
   justify-content: space-between;
 }
 
@@ -2572,6 +2737,19 @@ textarea {
 .scoreboard-squad-card strong {
   color: #10231d;
   font-size: 1.6rem;
+}
+
+.scoreboard-squad-cluster {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.62rem;
+}
+
+.scoreboard-squad-logo {
+  filter: drop-shadow(0 0 14px rgba(var(--accent-rgb), 0.2));
+  height: 3rem;
+  margin-block: -0.55rem;
+  width: 3rem;
 }
 
 .scoreboard-squad-card:hover,
@@ -2624,23 +2802,30 @@ textarea {
 }
 
 .leaderboard-row.squad-1 {
-  background: linear-gradient(90deg, rgba(192, 90, 22, 0.13), #fff 48%);
+  background: linear-gradient(90deg, rgba(255, 47, 95, 0.16), #fff 48%);
   color: inherit;
 }
 
 .leaderboard-row.squad-2 {
-  background: linear-gradient(90deg, rgba(173, 124, 0, 0.14), #fff 48%);
+  background: linear-gradient(90deg, rgba(255, 176, 0, 0.2), #fff 48%);
   color: inherit;
 }
 
 .leaderboard-row.squad-3 {
-  background: linear-gradient(90deg, rgba(31, 122, 88, 0.15), #fff 48%);
+  background: linear-gradient(90deg, rgba(0, 220, 166, 0.18), #fff 48%);
   color: inherit;
 }
 
 .leaderboard-row.squad-4 {
-  background: linear-gradient(90deg, rgba(31, 111, 184, 0.14), #fff 48%);
+  background: linear-gradient(90deg, rgba(0, 167, 255, 0.18), #fff 48%);
   color: inherit;
+}
+
+.leaderboard-mark {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+  position: relative;
 }
 
 .rank-medal {
@@ -2653,6 +2838,15 @@ textarea {
   height: 3rem;
   justify-content: center;
   width: 3rem;
+}
+
+.leaderboard-squad-logo {
+  bottom: -0.6rem;
+  filter: drop-shadow(0 0 10px rgba(var(--accent-rgb), 0.22));
+  height: 1.9rem;
+  position: absolute;
+  right: -0.45rem;
+  width: 1.9rem;
 }
 
 .leaderboard-identity {
@@ -3132,23 +3326,23 @@ textarea {
 }
 
 .squad-1 {
-  background: #f3d2d2;
-  color: #7b1717;
+  background: linear-gradient(135deg, rgba(255, 47, 95, 0.24), rgba(255, 255, 255, 0.82));
+  color: #560015;
 }
 
 .squad-2 {
-  background: #ffe89a;
-  color: #5f4400;
+  background: linear-gradient(135deg, rgba(255, 176, 0, 0.34), rgba(255, 255, 255, 0.82));
+  color: #513400;
 }
 
 .squad-3 {
-  background: #cfecd7;
-  color: #165629;
+  background: linear-gradient(135deg, rgba(0, 220, 166, 0.27), rgba(255, 255, 255, 0.82));
+  color: #003f32;
 }
 
 .squad-4 {
-  background: #d4e5fb;
-  color: #153f79;
+  background: linear-gradient(135deg, rgba(0, 167, 255, 0.27), rgba(255, 255, 255, 0.82));
+  color: #00385f;
 }
 
 .staff-pill {
