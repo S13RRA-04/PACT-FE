@@ -59,3 +59,11 @@ Squad themes override only accent tokens:
 ## LMS Alignment Guidance
 
 `LMS-FE` may mirror these documented values for visual consistency, but should keep its own CSS and auth/session implementation. Shared runtime packages must not contain secrets, API origins, auth state, Keycloak state, LTI launch data, or PACT session data.
+
+See `docs/lms-token-comparison.md` for the current LMS-FE comparison pass and recommended alias strategy.
+
+## Preference Roadmap
+
+PACT learner UI preferences currently stay local to each browser through versioned `localStorage` keys. Focus mode and collapsed queue state are intentionally client-only because they do not affect progress, scoring, authorization, or LTI launch context.
+
+If learners expect these settings to follow them across devices, add account-level preferences through a protected PACT API owned by `PACT-BE`. Keep that payload limited to safe UI booleans and resolve conflicts by applying server preferences after launch/session validation.

@@ -20,7 +20,9 @@ export function scoreQuestion(question: PactQuestion, value?: AnswerValue) {
   if (payload.kind === "drag_match" && isRecord(value)) {
     const matches = payload.matches ?? [];
     const correct = matches.filter((match) => value[match.sourceId] === match.targetId).length;
-    return matches.length ? Math.round((correct / matches.length) * points) : 0;
+    if (!matches.length) return 0;
+    if (payload.partialCredit === false) return correct === matches.length ? points : 0;
+    return Math.round((correct / matches.length) * points);
   }
   return 0;
 }

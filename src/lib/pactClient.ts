@@ -1,4 +1,4 @@
-import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AdminUser, AgsAttemptPage, AgsPublishAttemptStatus, AgsQueueProcessingResult, AgsTokenContextDiagnostic, AnswerValue, AssignmentCompletion, ContentProgress, ContentStatus, ManualGradingStatus, PactContent, PactNotification, PactNotificationStatus, PactSession, QuestionAttempt, QuestionSubmissionFeedback, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
+import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AdminUser, AgsAttemptPage, AgsPublishAttemptStatus, AgsQueueProcessingResult, AgsTokenContextDiagnostic, AnswerValue, AssignmentCompletion, ContentMechanics, ContentProgress, ContentStatus, ManualGradingStatus, PactContent, PactNotification, PactNotificationStatus, PactSession, QuestionAttempt, QuestionSubmissionFeedback, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
 
 type ContentCompletionResponse = {
   contentId: string;
@@ -60,7 +60,7 @@ export class PactClient {
     }
   }
 
-  async updateContentProgress(contentId: string, input: Pick<ContentProgress, "answers" | "progressPercent">) {
+  async updateContentProgress(contentId: string, input: Partial<Pick<ContentProgress, "answers" | "progressPercent" | "mechanicsState" | "status">>) {
     try {
       return await this.request<ContentProgress>(`/api/v1/content/${encodeURIComponent(contentId)}/progress`, {
         method: "PATCH",
@@ -213,6 +213,13 @@ export class PactClient {
     return this.request<PactContent>(`/api/v1/admin/content/${encodeURIComponent(contentId)}/lms-label`, {
       method: "PATCH",
       body: JSON.stringify({ lmsLabel })
+    });
+  }
+
+  async updateContentMechanics(contentId: string, mechanics: ContentMechanics | null) {
+    return this.request<PactContent>(`/api/v1/admin/content/${encodeURIComponent(contentId)}/mechanics`, {
+      method: "PATCH",
+      body: JSON.stringify({ mechanics })
     });
   }
 

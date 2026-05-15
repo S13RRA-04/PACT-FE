@@ -1,7 +1,14 @@
-import { useMemo, useState } from "react";
-import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AgsPublishAttempt, AgsPublishAttemptStatus, AgsTokenContextDiagnostic, ContentStatus, ManualGradingStatus, PactContent, PactNotification, QuestionAttempt, SessionDiagnostic, SquadNumber } from "../types";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AgsPublishAttempt, AgsPublishAttemptStatus, AgsTokenContextDiagnostic, ContentMechanics, ContentStatus, ManualGradingStatus, PactContent, PactNotification, QuestionAttempt, SessionDiagnostic, SquadNumber } from "../types";
 import { contentTypeLabel, formatDateTime, roleLabel } from "../lib/format";
-import { Empty, SessionDiagnosticSummary } from "./pactShared";
+import { contentTypeCounts, MissionTypeCard, ProgressTrack } from "../components/pact";
+import { Empty } from "./pactShared";
+
+type SummaryMetric = {
+  label: string;
+  value: string | number;
+};
 
 export function ControlPlane({
   content,
@@ -20,6 +27,7 @@ export function ControlPlane({
   onUpdateStatus,
   onAssignContent,
   onUpdateLmsLabel,
+  onUpdateMechanics,
   onAssignSquad,
   onLoadQuestionAttempts,
   onGradeManualAttempt,
@@ -46,6 +54,7 @@ export function ControlPlane({
   onUpdateStatus: (id: string, status: ContentStatus) => void;
   onAssignContent: (id: string, cohortId: string | null) => void;
   onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
+  onUpdateMechanics: (id: string, mechanics: ContentMechanics | null) => void;
   onAssignSquad: (userId: string, squadNumber: SquadNumber) => void;
   onLoadQuestionAttempts: (filters: { cohortId?: string; contentId?: string; userId?: string; questionId?: string; manualGradingStatus?: ManualGradingStatus }) => void;
   onGradeManualAttempt: (attemptId: string, input: { score: number; feedback?: string }) => void;
@@ -56,13 +65,20 @@ export function ControlPlane({
   onLoadNotifications: () => void;
   onLoadAuditEvents: (action?: AdminAuditAction) => void;
 }) {
+  const pendingManualCount = questionAttempts.filter((attempt) => attempt.manualGradingStatus === "pending").length;
+  const agsRetryPressure = agsAttempts.filter((attempt) => attempt.status === "failed" || attempt.status === "pending" || attempt.status === "retry_exhausted").length;
   return (
     <section className="control-plane">
-      <article>
-        <header className="section-head"><div><h2>Control Plane</h2><p>Manage PACT content delivery, cohort assignment, user squads, and diagnostics.</p></div></header>
-        {diagnostic ? <SessionDiagnosticSummary diagnostic={diagnostic} /> : null}
+      <article className="control-hero">
+        <ControlPlaneHero
+          content={content}
+          cohorts={cohorts}
+          pendingManualCount={pendingManualCount}
+          agsRetryPressure={agsRetryPressure}
+          diagnostic={diagnostic}
+        />
       </article>
-      <ContentDeliveryManager content={content} cohorts={cohorts} onUpdateStatus={onUpdateStatus} onAssignContent={onAssignContent} onUpdateLmsLabel={onUpdateLmsLabel} />
+      <ContentDeliveryManager content={content} cohorts={cohorts} onUpdateStatus={onUpdateStatus} onAssignContent={onAssignContent} onUpdateLmsLabel={onUpdateLmsLabel} onUpdateMechanics={onUpdateMechanics} />
       <AgsDiagnosticsPanel
         content={content}
         cohorts={cohorts}
@@ -82,6 +98,82 @@ export function ControlPlane({
       <AdminConsole cohorts={cohorts} auditEvents={canAdmin ? auditEvents : []} onAssign={onAssignSquad} onLoadAuditEvents={onLoadAuditEvents} showAudit={canAdmin} />
     </section>
   );
+}
+
+function ControlPlaneHero({
+  content,
+  cohorts,
+  pendingManualCount,
+  agsRetryPressure,
+  diagnostic
+}: {
+  content: PactContent[];
+  cohorts: AdminCohort[];
+  pendingManualCount: number;
+  agsRetryPressure: number;
+  diagnostic?: SessionDiagnostic;
+}) {
+  const publishedCount = content.filter((item) => item.status === "published").length;
+  const visibleCount = diagnostic?.visibleContentCount ?? publishedCount;
+  const publishPercent = content.length ? Math.round((publishedCount / content.length) * 100) : 0;
+  const counts = contentTypeCounts(content);
+
+  return (
+    <div className="control-hero-grid">
+      <div className="control-hero-copy">
+        <span className="panel-label">Instructor Delivery</span>
+        <h2>Instructor Command Center</h2>
+        <p>Manage mission availability, grading pressure, LMS grade sync, and squad operations from one instructor surface.</p>
+      </div>
+      <div className="control-hero-card">
+        <div>
+          <span>Published Content</span>
+          <strong>{publishPercent}%</strong>
+        </div>
+        <ProgressTrack value={publishPercent} />
+        <small>{publishedCount}/{content.length || 0} published | {visibleCount} visible in launch context</small>
+      </div>
+      <div className="control-hero-metrics" aria-label="Control plane summary">
+        <div><span>Cohorts</span><strong>{cohorts.length}</strong></div>
+        <div><span>Manual Review</span><strong>{pendingManualCount}</strong></div>
+        <div><span>AGS Queue</span><strong>{agsRetryPressure}</strong></div>
+      </div>
+      <div className="mission-type-grid control-type-grid" aria-label="Managed PACT activity types">
+        {(["module", "challenge", "game", "assessment"] as const).map((type) => (
+          <MissionTypeCard count={counts[type]} key={type} type={type} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SectionHeader({ title, description, children }: { title: string; description?: string; children?: ReactNode }) {
+  return (
+    <header className="section-head">
+      <div>
+        <h2>{title}</h2>
+        {description ? <p>{description}</p> : null}
+      </div>
+      {children}
+    </header>
+  );
+}
+
+function SummaryGrid({ label, metrics }: { label: string; metrics: SummaryMetric[] }) {
+  return (
+    <div className="attempt-summary" aria-label={label}>
+      {metrics.map((metric) => (
+        <div key={metric.label}>
+          <span>{metric.label}</span>
+          <strong>{metric.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatusPill({ tone, label }: { tone: string; label: string }) {
+  return <span className={`status ${tone}`}>{label}</span>;
 }
 
 function AgsDiagnosticsPanel({
@@ -139,16 +231,12 @@ function AgsDiagnosticsPanel({
 
   return (
     <article className="ags-diagnostics">
-      <header className="section-head">
-        <div>
-          <h2>AGS Publish Diagnostics</h2>
-          <p>Inspect LMS grade sync outcomes, verify launch token context, and retry failed or pending publishes.</p>
-        </div>
+      <SectionHeader title="AGS Publish Diagnostics" description="Inspect LMS grade sync outcomes, verify launch token context, and retry failed or pending publishes.">
         <div className="section-actions">
           <a className="button-link" href={exportUrl}>Export CSV</a>
           <button type="button" onClick={applyFilters}>Refresh</button>
         </div>
-      </header>
+      </SectionHeader>
       <div className={`ags-token-context ${tokenContext?.hasLaunchContext && tokenContext.hasScoreScope ? "ready" : "needs-launch"}`}>
         <div>
           <strong>{tokenContext?.hasLaunchContext && tokenContext.hasScoreScope ? "Server-side AGS tokens available" : "Launch context needs refresh"}</strong>
@@ -221,15 +309,18 @@ function AgsDiagnosticsPanel({
           </select>
         </label>
       </div>
-      <div className="attempt-summary" aria-label="AGS diagnostics summary">
-        <div><span>Loaded</span><strong>{attempts.length}</strong></div>
-        <div><span>Total</span><strong>{summary?.total ?? attempts.length}</strong></div>
-        <div><span>Retryable Loaded</span><strong>{retryableCount}</strong></div>
-        <div><span>Pending</span><strong>{pendingCount}</strong></div>
-        <div><span>Exhausted</span><strong>{exhaustedCount}</strong></div>
-        <div><span>Failed</span><strong>{failedCount}</strong></div>
-        <div><span>Published</span><strong>{summary?.byStatus.published ?? attempts.filter((attempt) => attempt.status === "published").length}</strong></div>
-      </div>
+      <SummaryGrid
+        label="AGS diagnostics summary"
+        metrics={[
+          { label: "Loaded", value: attempts.length },
+          { label: "Total", value: summary?.total ?? attempts.length },
+          { label: "Retryable Loaded", value: retryableCount },
+          { label: "Pending", value: pendingCount },
+          { label: "Exhausted", value: exhaustedCount },
+          { label: "Failed", value: failedCount },
+          { label: "Published", value: summary?.byStatus.published ?? attempts.filter((attempt) => attempt.status === "published").length }
+        ]}
+      />
       <div className="ags-attempt-list">
         {attempts.length ? attempts.map((attempt) => {
           const retryable = attempt.status === "failed" || attempt.status === "pending";
@@ -242,7 +333,7 @@ function AgsDiagnosticsPanel({
                 <strong>{item?.title ?? attempt.contentId}</strong>
                 <small>{learner?.name ?? learner?.email ?? attempt.userId} | {attempt.cohortId}</small>
               </div>
-              <span className={`status ${statusClassForAgs(attempt.status)}`}>{attempt.status.replace(/_/g, " ")}</span>
+              <StatusPill tone={statusClassForAgs(attempt.status)} label={attempt.status.replace(/_/g, " ")} />
               <div><span>Score</span><strong>{attempt.score}/{attempt.maxScore}</strong></div>
               <div><span>Retry</span><strong>{attempt.retryCount ?? 0}</strong></div>
               <div><span>Created</span><time dateTime={attempt.createdAt}>{formatDateTime(attempt.createdAt)}</time></div>
@@ -274,17 +365,16 @@ function AgsDiagnosticsPanel({
 function NotificationDiagnosticsPanel({ notifications, onRefresh }: { notifications: PactNotification[]; onRefresh: () => void }) {
   return (
     <article className="notification-diagnostics">
-      <header className="section-head">
-        <div>
-          <h2>Notification Diagnostics</h2>
-          <p>Inspect exhausted retry alerts that could not be delivered to configured sinks.</p>
-        </div>
+      <SectionHeader title="Notification Diagnostics" description="Inspect exhausted retry alerts that could not be delivered to configured sinks.">
         <button type="button" onClick={onRefresh}>Refresh</button>
-      </header>
-      <div className="attempt-summary" aria-label="Notification diagnostics summary">
-        <div><span>Dead Letters</span><strong>{notifications.length}</strong></div>
-        <div><span>AGS Alerts</span><strong>{notifications.filter((item) => item.event === "ags.retry_exhausted").length}</strong></div>
-      </div>
+      </SectionHeader>
+      <SummaryGrid
+        label="Notification diagnostics summary"
+        metrics={[
+          { label: "Dead Letters", value: notifications.length },
+          { label: "AGS Alerts", value: notifications.filter((item) => item.event === "ags.retry_exhausted").length }
+        ]}
+      />
       <div className="ags-attempt-list">
         {notifications.length ? notifications.map((notification) => (
           <section className="ags-attempt-row" key={notification.id}>
@@ -292,7 +382,7 @@ function NotificationDiagnosticsPanel({ notifications, onRefresh }: { notificati
               <strong>{notification.event}</strong>
               <small>{notification.sinkUrl}</small>
             </div>
-            <span className="status status-failed">{notification.status.replace(/_/g, " ")}</span>
+            <StatusPill tone="failed" label={notification.status.replace(/_/g, " ")} />
             <div><span>Attempts</span><strong>{notification.attemptCount}</strong></div>
             <div><span>Last Status</span><strong>{notification.lastStatus ?? "n/a"}</strong></div>
             <div><span>Updated</span><time dateTime={notification.updatedAt}>{formatDateTime(notification.updatedAt)}</time></div>
@@ -388,13 +478,9 @@ function AttemptReviewPanel({
 
   return (
     <article className="attempt-review">
-      <header className="section-head">
-        <div>
-          <h2>Question Attempt Review</h2>
-          <p>Review retries, correctness, timestamps, and feedback exposure by learner.</p>
-        </div>
+      <SectionHeader title="Question Attempt Review" description="Review retries, correctness, timestamps, and feedback exposure by learner.">
         <button type="button" onClick={applyFilters}>Apply Filters</button>
-      </header>
+      </SectionHeader>
       <div className="attempt-filters" aria-label="Attempt review filters">
         <label className="inline-select">
           <span>Cohort</span>
@@ -450,14 +536,17 @@ function AttemptReviewPanel({
           </select>
         </label>
       </div>
-      <div className="attempt-summary" aria-label="Attempt review summary">
-        <div><span>Showing</span><strong>{filteredAttempts.length}</strong></div>
-        <div><span>Correct</span><strong>{filteredAttempts.filter((attempt) => attempt.isCorrect).length}</strong></div>
-        <div><span>Retries</span><strong>{filteredAttempts.filter((attempt) => attempt.attemptNumber > 1).length}</strong></div>
-        <div><span>Feedback seen</span><strong>{filteredAttempts.filter((attempt) => attempt.feedbackExposed).length}</strong></div>
-        <div><span>Pending manual</span><strong>{filteredAttempts.filter((attempt) => attempt.manualGradingStatus === "pending").length}</strong></div>
-        <div><span>Graded manual</span><strong>{filteredAttempts.filter((attempt) => attempt.manualGradingStatus === "graded").length}</strong></div>
-      </div>
+      <SummaryGrid
+        label="Attempt review summary"
+        metrics={[
+          { label: "Showing", value: filteredAttempts.length },
+          { label: "Correct", value: filteredAttempts.filter((attempt) => attempt.isCorrect).length },
+          { label: "Retries", value: filteredAttempts.filter((attempt) => attempt.attemptNumber > 1).length },
+          { label: "Feedback seen", value: filteredAttempts.filter((attempt) => attempt.feedbackExposed).length },
+          { label: "Pending manual", value: filteredAttempts.filter((attempt) => attempt.manualGradingStatus === "pending").length },
+          { label: "Graded manual", value: filteredAttempts.filter((attempt) => attempt.manualGradingStatus === "graded").length }
+        ]}
+      />
       <div className="attempt-list">
         {filteredAttempts.length ? filteredAttempts.map((attempt) => {
           const manualGradeStatus = attempt.manualGradingStatus ?? "not_required";
@@ -468,7 +557,7 @@ function AttemptReviewPanel({
                 <strong>{attempt.learnerName ?? attempt.learnerEmail ?? attempt.userId}</strong>
                 <small>{attempt.contentTitle ?? attempt.contentId} | {attempt.questionTopic ?? attempt.questionId}</small>
               </div>
-              <span className={`status ${attempt.isCorrect ? "published" : manualGradeStatus === "pending" ? "pending" : "draft"}`}>{attempt.isCorrect ? "correct" : manualGradeStatus === "pending" ? "pending" : "incorrect"}</span>
+              <StatusPill tone={attempt.isCorrect ? "published" : manualGradeStatus === "pending" ? "pending" : "draft"} label={attempt.isCorrect ? "correct" : manualGradeStatus === "pending" ? "pending" : "incorrect"} />
               <div><span>Attempt</span><strong>{attempt.attemptNumber}</strong></div>
               <div><span>Score</span><strong>{attempt.manualGrade ? `${attempt.manualGrade.score}/${attempt.manualGrade.maxScore}` : `${attempt.score}/${attempt.maxScore}`}</strong></div>
               <div><span>Manual</span><strong>{manualGradeStatus.replace("_", " ")}</strong></div>
@@ -502,29 +591,93 @@ function AttemptReviewPanel({
   );
 }
 
-function ContentDeliveryManager({ content, cohorts, onUpdateStatus, onAssignContent, onUpdateLmsLabel }: {
+function ContentDeliveryManager({ content, cohorts, onUpdateStatus, onAssignContent, onUpdateLmsLabel, onUpdateMechanics }: {
   content: PactContent[];
   cohorts: AdminCohort[];
   onUpdateStatus: (id: string, status: ContentStatus) => void;
   onAssignContent: (id: string, cohortId: string | null) => void;
   onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
+  onUpdateMechanics: (id: string, mechanics: ContentMechanics | null) => void;
 }) {
   const cohortOptions = Array.from(new Set(cohorts.map((cohort) => cohort.cohortId))).sort();
   return (
-    <article>
-      <h2>Content Delivery</h2>
+    <article className="delivery-panel">
+      <SectionHeader title="Content Delivery" description="Publish, archive, and assign PACT missions into active launch contexts." />
       <div className="list">
         {content.length ? content.map((item) => (
-          <div className="gate-row" key={item.id}>
-            <span className={`status ${item.status ?? "draft"}`}>{item.status ?? "draft"}</span>
-            <div><strong>{item.title}</strong><small>{contentTypeLabel(item.type)} | {item.questionCount ?? item.questions?.length ?? 0} questions | {item.cohortId ?? "all cohorts"}</small></div>
-            <label className="inline-select"><span>Cohort</span><select value={item.cohortId ?? ""} onChange={(event) => onAssignContent(item.id, event.target.value || null)}><option value="">All cohorts</option>{cohortOptions.map((cohortId) => <option key={cohortId} value={cohortId}>{cohortId}</option>)}</select></label>
-            <label className="inline-select"><span>LMS label</span><input defaultValue={item.lmsLabel ?? ""} onBlur={(event) => { const nextLabel = event.currentTarget.value.trim(); if (nextLabel !== (item.lmsLabel ?? "")) onUpdateLmsLabel(item.id, nextLabel || null); }} placeholder={item.title} /></label>
-            <div>{(["draft", "published", "archived"] as ContentStatus[]).map((status) => <button disabled={item.status === status} key={status} type="button" onClick={() => onUpdateStatus(item.id, status)}>{status}</button>)}</div>
-          </div>
+          <ContentDeliveryRow
+            cohortOptions={cohortOptions}
+            item={item}
+            key={item.id}
+            onAssignContent={onAssignContent}
+            onUpdateLmsLabel={onUpdateLmsLabel}
+            onUpdateMechanics={onUpdateMechanics}
+            onUpdateStatus={onUpdateStatus}
+          />
         )) : <Empty text="No content available to manage." />}
       </div>
     </article>
+  );
+}
+
+function ContentDeliveryRow({
+  item,
+  cohortOptions,
+  onUpdateStatus,
+  onAssignContent,
+  onUpdateLmsLabel,
+  onUpdateMechanics
+}: {
+  item: PactContent;
+  cohortOptions: string[];
+  onUpdateStatus: (id: string, status: ContentStatus) => void;
+  onAssignContent: (id: string, cohortId: string | null) => void;
+  onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
+  onUpdateMechanics: (id: string, mechanics: ContentMechanics | null) => void;
+}) {
+  const [mechanicsText, setMechanicsText] = useState(item.mechanics ? JSON.stringify(item.mechanics, null, 2) : "");
+  const [mechanicsError, setMechanicsError] = useState("");
+
+  useEffect(() => {
+    setMechanicsText(item.mechanics ? JSON.stringify(item.mechanics, null, 2) : "");
+    setMechanicsError("");
+  }, [item.id, item.mechanics]);
+
+  function saveMechanics() {
+    const trimmed = mechanicsText.trim();
+    if (!trimmed) {
+      setMechanicsError("");
+      onUpdateMechanics(item.id, null);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as ContentMechanics;
+      setMechanicsError("");
+      onUpdateMechanics(item.id, parsed);
+    } catch {
+      setMechanicsError("Mechanics JSON is not valid.");
+    }
+  }
+
+  return (
+    <div className={`gate-row type-${item.type}`}>
+      <StatusPill tone={item.status ?? "draft"} label={item.status ?? "draft"} />
+      <div><strong>{item.title}</strong><small>{contentTypeLabel(item.type)} | {item.questionCount ?? item.questions?.length ?? 0} questions | {item.cohortId ?? "all cohorts"}</small></div>
+      <label className="inline-select"><span>Cohort</span><select value={item.cohortId ?? ""} onChange={(event) => onAssignContent(item.id, event.target.value || null)}><option value="">All cohorts</option>{cohortOptions.map((cohortId) => <option key={cohortId} value={cohortId}>{cohortId}</option>)}</select></label>
+      <label className="inline-select"><span>LMS label</span><input defaultValue={item.lmsLabel ?? ""} onBlur={(event) => { const nextLabel = event.currentTarget.value.trim(); if (nextLabel !== (item.lmsLabel ?? "")) onUpdateLmsLabel(item.id, nextLabel || null); }} placeholder={item.title} /></label>
+      <div>{(["draft", "published", "archived"] as ContentStatus[]).map((status) => <button disabled={item.status === status} key={status} type="button" onClick={() => onUpdateStatus(item.id, status)}>{status}</button>)}</div>
+      {item.type !== "module" ? (
+        <details className="mechanics-editor">
+          <summary>Mechanics JSON</summary>
+          <textarea aria-label={`${item.title} mechanics JSON`} value={mechanicsText} onChange={(event) => setMechanicsText(event.target.value)} />
+          {mechanicsError ? <span role="alert">{mechanicsError}</span> : <small>{item.mechanics ? `${item.mechanics.kind} configured` : "No mechanics configured"}</small>}
+          <div className="section-actions">
+            <button type="button" onClick={saveMechanics}>Save Mechanics</button>
+            <button type="button" onClick={() => { setMechanicsText(""); setMechanicsError(""); onUpdateMechanics(item.id, null); }}>Clear</button>
+          </div>
+        </details>
+      ) : null}
+    </div>
   );
 }
 

@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import pactLogo from "./assets/pact-logo-display.png";
 import { ControlPlane } from "./features/controlPlane";
 import { ContentWorkspace } from "./features/learningWorkspace";
+import type { MechanicOutcome } from "./features/learnerMechanicsTypes";
 import { Scoreboard } from "./features/scoreboard";
 import { SessionDiagnosticSummary } from "./features/pactShared";
 import { contextSquadLabel, initialsFor, roleLabel, themeLabelFor } from "./lib/format";
 import { PactClient } from "./lib/pactClient";
 import { scoreQuestion } from "./lib/scoring";
-import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AgsPublishAttempt, AgsPublishAttemptStatus, AgsTokenContextDiagnostic, AnswerState, AnswerValue, AssignmentCompletion, ContentFilter, ContentProgress, ContentStatus, ManualGradingStatus, PactContent, PactNotification, PactSession, QuestionAttempt, QuestionSubmissionFeedback, ScoreboardEntry, SessionDiagnostic, SquadNumber, View } from "./types";
+import { readBooleanPreference, UI_PREF_KEYS, writeBooleanPreference } from "./lib/uiPreferences";
+import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AgsPublishAttempt, AgsPublishAttemptStatus, AgsTokenContextDiagnostic, AnswerState, AnswerValue, AssignmentCompletion, ContentFilter, ContentMechanics, ContentProgress, ContentStatus, ManualGradingStatus, MechanicsState, PactContent, PactNotification, PactSession, QuestionAttempt, QuestionSubmissionFeedback, ScoreboardEntry, SessionDiagnostic, SquadNumber, View } from "./types";
 
 const apiBaseUrl = requireApiBaseUrl();
 type QuestionAttemptFilters = { cohortId?: string; contentId?: string; userId?: string; questionId?: string; manualGradingStatus?: ManualGradingStatus };
@@ -26,6 +28,39 @@ function requireApiBaseUrl() {
   }
 
   return value;
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+}
+
+function NavIcon({ type }: { type: "training" | "delivery" | "scoreboard" }) {
+  if (type === "training") {
+    return (
+      <svg aria-hidden="true" className="nav-svg" viewBox="0 0 24 24">
+        <path d="M5 5.8c0-1 .8-1.8 1.8-1.8h10.4c1 0 1.8.8 1.8 1.8v12.4c0 .5-.3.8-.8.8H6.8A1.8 1.8 0 0 1 5 17.2V5.8Z" />
+        <path d="M8 7h8M8 10h6M8 16h8" />
+      </svg>
+    );
+  }
+  if (type === "delivery") {
+    return (
+      <svg aria-hidden="true" className="nav-svg" viewBox="0 0 24 24">
+        <path d="M4 7.5 12 3l8 4.5-8 4.5L4 7.5Z" />
+        <path d="M7 10v5.2c0 1 2.2 2.8 5 2.8s5-1.8 5-2.8V10M20 8v6" />
+      </svg>
+    );
+  }
+  return (
+    <svg aria-hidden="true" className="nav-svg" viewBox="0 0 24 24">
+      <path d="M7 20h10" />
+      <path d="M8 20v-4.5M16 20v-4.5" />
+      <path d="M6 4h12v4.5a6 6 0 0 1-12 0V4Z" />
+      <path d="M6 7H3.8c0 3.2 1.5 5.2 4.1 5.8M18 7h2.2c0 3.2-1.5 5.2-4.1 5.8" />
+    </svg>
+  );
 }
 
 export function App() {
@@ -56,6 +91,7 @@ export function App() {
   const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const [result, setResult] = useState<{ score: number; maxScore: number } | undefined>();
   const [view, setView] = useState<View>("modules");
+  const [taskFocus, setTaskFocus] = useState(() => readBooleanPreference(UI_PREF_KEYS.taskFocus));
   const [contentFilter, setContentFilter] = useState<ContentFilter>("all");
   const [status, setStatus] = useState("Launch PACT from the LMS to begin.");
   const isConnected = Boolean(session);
@@ -82,6 +118,29 @@ export function App() {
     clearLegacySessionHandoff();
     void syncDashboard(client);
   }, [client]);
+
+  useEffect(() => {
+    writeBooleanPreference(UI_PREF_KEYS.taskFocus, taskFocus);
+  }, [taskFocus]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (view !== "modules" || !selectedContent) return;
+      if (isEditableShortcutTarget(event.target)) return;
+      if (event.key === "Escape" && taskFocus) {
+        event.preventDefault();
+        setTaskFocus(false);
+        return;
+      }
+      if (event.key.toLowerCase() === "f" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        setTaskFocus((current) => !current);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedContent, taskFocus, view]);
 
   async function loadDashboard() {
     await syncDashboard(client);
@@ -267,6 +326,33 @@ export function App() {
     }
   }
 
+  async function updateContentMechanics(contentId: string, mechanics: ContentMechanics | null) {
+    try {
+      const updated = await client.updateContentMechanics(contentId, mechanics);
+      setContent((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setManagedContent((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setStatus(mechanics ? "Content mechanics updated." : "Content mechanics cleared.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to update content mechanics.");
+    }
+  }
+
+  const saveMechanicsState = useCallback(async (state: MechanicsState, outcome: MechanicOutcome) => {
+    if (!selectedContent || selectedContent.questions?.length) return;
+    try {
+      const updated = await client.updateContentProgress(selectedContent.id, {
+        mechanicsState: state,
+        progressPercent: outcome.progressPercent,
+        status: outcome.progressPercent > 0 ? "in_progress" : "not_started"
+      });
+      if (updated) {
+        setProgress((current) => [updated, ...current.filter((item) => item.contentId !== updated.contentId)]);
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to save activity progress.");
+    }
+  }, [client, selectedContent]);
+
   async function assignSquad(userId: string, squadNumber: SquadNumber) {
     try {
       await client.assignUserSquad(userId, squadNumber);
@@ -382,17 +468,20 @@ export function App() {
     }
   }
 
-  async function submitSelectedModule() {
-    if (!selectedContent?.questions?.length) return;
-    const score = selectedContent.questions.reduce((total, question) => total + scoreQuestion(question, answers[question.id]), 0);
-    const maxScore = selectedContent.questions.reduce((total, question) => total + question.scoring.points, 0);
+  async function submitSelectedModule(outcome?: MechanicOutcome) {
+    if (!selectedContent) return;
+    const questions = selectedContent.questions ?? [];
+    if (!questions.length && !outcome) return;
+    const score = outcome?.score ?? questions.reduce((total, question) => total + scoreQuestion(question, answers[question.id]), 0);
+    const maxScore = outcome?.maxScore ?? questions.reduce((total, question) => total + question.scoring.points, 0);
+    const progressPercent = outcome?.progressPercent ?? selectedProgressPercent;
 
     try {
       await client.submitScore({
         contentId: selectedContent.id,
         score,
         maxScore,
-        progressPercent: Math.min(100, selectedProgressPercent)
+        progressPercent: Math.min(100, progressPercent)
       });
       const [scoreboardResponse, progressResponse] = await Promise.all([client.getScoreboard(), client.getContentProgress()]);
       setResult({ score, maxScore });
@@ -415,9 +504,9 @@ export function App() {
           </div>
         </div>
         <nav aria-label="PACT workspace">
-          <button className={view === "modules" ? "active" : ""} type="button" onClick={() => setView("modules")}><span className="nav-icon" aria-hidden="true">T</span><span>Training</span></button>
-          {canManage ? <button className={view === "control" ? "active" : ""} type="button" onClick={() => setView("control")}><span className="nav-icon" aria-hidden="true">D</span><span>Instructor Delivery</span></button> : null}
-          <button className={view === "scoreboard" ? "active" : ""} type="button" onClick={() => setView("scoreboard")}><span className="nav-icon" aria-hidden="true">S</span><span>Scoreboard</span></button>
+          <button className={view === "modules" ? "active" : ""} type="button" onClick={() => setView("modules")}><span className="nav-icon"><NavIcon type="training" /></span><span>Training</span></button>
+          {canManage ? <button className={view === "control" ? "active" : ""} type="button" onClick={() => setView("control")}><span className="nav-icon"><NavIcon type="delivery" /></span><span>Instructor Delivery</span></button> : null}
+          <button className={view === "scoreboard" ? "active" : ""} type="button" onClick={() => setView("scoreboard")}><span className="nav-icon"><NavIcon type="scoreboard" /></span><span>Scoreboard</span></button>
         </nav>
         <div className="side-user">
           <span>{session ? initialsFor(session.userId) : "P"}</span>
@@ -425,16 +514,33 @@ export function App() {
         </div>
       </aside>
 
-      <section className="workspace">
+      <section className={`workspace workspace-${view} ${view === "modules" && taskFocus ? "workspace-focus" : ""}`}>
         <header className="topbar">
-          <div><span>{view === "modules" ? "Training" : view === "control" ? "Instructor Delivery" : "Scoreboard"}</span><h1>{selectedContent?.title ?? "PACT Content Workspace"}</h1></div>
+          <div>
+            <span>{view === "modules" ? "Training" : view === "control" ? "Instructor Delivery" : "Scoreboard"}</span>
+            <h1>{view === "scoreboard" ? "Mission Leaderboard" : view === "control" ? "Control Plane" : selectedContent?.title ?? "PACT Content Workspace"}</h1>
+          </div>
           <div className="topbar-actions">
             {session ? <span className="role-chip">{themeLabelFor(session)}</span> : null}
+            {view === "modules" && selectedContent ? (
+              <span className="shortcut-control">
+                <button
+                  type="button"
+                  aria-describedby="focus-shortcut-tip"
+                  onClick={() => setTaskFocus((current) => !current)}
+                >
+                  {taskFocus ? "Exit Focus" : "Focus Task"}
+                </button>
+                <span className="shortcut-tooltip" id="focus-shortcut-tip" role="tooltip">
+                  Press F to toggle focus. Esc exits.
+                </span>
+              </span>
+            ) : null}
             <button type="button" onClick={() => void loadDashboard()} disabled={!isConnected}>Sync</button>
           </div>
         </header>
 
-        <section className="session-panel">
+        <section className={`session-panel ${view === "modules" ? "command-strip" : ""}`}>
           <dl className="session-strip">
             <div><dt>Session</dt><dd>{session ? session.userId : "Not connected"}</dd></div>
             <div><dt>Course</dt><dd>{session?.courseId ?? "Awaiting launch"}</dd></div>
@@ -466,6 +572,8 @@ export function App() {
             persistedProgress={selectedProgress}
             scoreboard={scoreboard}
             status={status}
+            focused={taskFocus}
+            onFocusedChange={setTaskFocus}
             onFilterChange={(nextFilter) => {
               const nextContent = content.find((item) => nextFilter === "all" || item.type === nextFilter);
               const nextProgress = progress.find((item) => item.contentId === nextContent?.id);
@@ -478,13 +586,15 @@ export function App() {
               setCompletionScore(undefined);
               setActiveQuestionIndex(firstOpenQuestionIndex(nextContent, nextProgress?.answeredQuestionIds ?? []));
               setResult(undefined);
+              setTaskFocus(false);
               if (nextContent?.id) void loadCompletionStatus(nextContent.id);
             }}
             onSelectContent={selectContent}
             onAnswer={saveAnswer}
             onQuestionSelect={setActiveQuestionIndex}
             onSubmitQuestion={(questionId) => void submitQuestion(questionId)}
-            onSubmit={() => void submitSelectedModule()}
+            onMechanicsStateChange={saveMechanicsState}
+            onSubmit={(outcome) => void submitSelectedModule(outcome)}
           />
         ) : null}
 
@@ -506,6 +616,7 @@ export function App() {
             onUpdateStatus={(id, nextStatus) => void updateGate(id, nextStatus)}
             onAssignContent={(id, cohortId) => void assignContentCohort(id, cohortId)}
             onUpdateLmsLabel={(id, lmsLabel) => void updateContentLmsLabel(id, lmsLabel)}
+            onUpdateMechanics={(id, mechanics) => void updateContentMechanics(id, mechanics)}
             onAssignSquad={(userId, squadNumber) => void assignSquad(userId, squadNumber)}
             onLoadQuestionAttempts={(filters) => void loadQuestionAttempts(filters)}
             onGradeManualAttempt={(attemptId, input) => void gradeManualAttempt(attemptId, input)}
@@ -537,7 +648,8 @@ function clearLegacySessionHandoff() {
 }
 
 function themeClassFor(role: PactSession["role"], squadNumber?: SquadNumber) {
-  if (role !== "learner") return "theme-staff";
+  if (role === "admin") return "theme-admin";
+  if (role === "instructor") return "theme-instructor";
   return squadNumber ? `theme-squad-${squadNumber}` : "theme-neutral";
 }
 

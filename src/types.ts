@@ -162,6 +162,49 @@ export type PactQuestion = {
   };
 };
 
+export type ChallengeMechanics = {
+  kind: "challenge_path";
+  title: string;
+  prompt: string;
+  resultLabel?: string;
+  defaultPathId?: string;
+  paths: Array<{
+    id: string;
+    label: string;
+    detail: string;
+    score: number;
+  }>;
+};
+
+export type GameMechanics = {
+  kind: "packet_capture";
+  title: string;
+  prompt: string;
+  resultLabel?: string;
+  maxScore?: number;
+  initiallyCaptured?: string[];
+  nodes: Array<{
+    id: string;
+    label: string;
+    points: number;
+  }>;
+};
+
+export type AssessmentMechanics = {
+  kind: "readiness_checklist";
+  title: string;
+  prompt: string;
+  resultLabel?: string;
+  checks: Array<{
+    id: string;
+    label: string;
+    initiallyChecked?: boolean;
+  }>;
+};
+
+export type ContentMechanics = ChallengeMechanics | GameMechanics | AssessmentMechanics;
+export type MechanicsState = Record<string, unknown>;
+
 export type PactContent = {
   id: string;
   cohortId?: string | null;
@@ -174,6 +217,7 @@ export type PactContent = {
   day?: string;
   questionCount?: number;
   questions?: PactQuestion[];
+  mechanics?: ContentMechanics;
 };
 
 export type AnswerValue = string | string[] | Record<string, string> | boolean;
@@ -187,6 +231,7 @@ export type ContentProgress = {
   contentId: string;
   contentType: ContentType;
   answers: AnswerState;
+  mechanicsState?: MechanicsState;
   answeredQuestionIds: string[];
   progressPercent: number;
   score?: number;

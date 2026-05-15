@@ -32,6 +32,23 @@ const content = [
         scoring: { points: 10, difficulty: "medium", mustPass: true, gradingMode: "manual" }
       }
     ]
+  },
+  {
+    id: "game-1",
+    type: "game",
+    title: "Packet Pursuit",
+    prompt: "Play a packet capture scenario.",
+    maxScore: 25,
+    status: "draft",
+    questionCount: 0,
+    cohortId: "spring-2026",
+    mechanics: {
+      kind: "packet_capture",
+      title: "Capture the packet trail",
+      prompt: "Tap evidence nodes.",
+      nodes: [{ id: "dns", label: "DNS", points: 20 }]
+    },
+    questions: []
   }
 ];
 
@@ -56,7 +73,16 @@ test("instructor grades a manual attempt and retries AGS publishing", async ({ p
   await expect(page.getByRole("heading", { name: "Question Attempt Review" })).toBeVisible();
   await expect(page.getByText("Incident Triage Fundamentals | Manual analysis")).toBeVisible();
   await expect(page.getByText("Awaiting instructor grade")).toBeVisible();
-  await expect(page).toHaveScreenshot("instructor-control-plane.png", { fullPage: true });
+  await page.locator(".gate-row", { hasText: "Packet Pursuit" }).getByText("Mechanics JSON").click();
+  await page.getByLabel("Packet Pursuit mechanics JSON").fill(JSON.stringify({
+    kind: "packet_capture",
+    title: "Capture updated trail",
+    prompt: "Updated game shell.",
+    nodes: [{ id: "proxy", label: "Proxy", points: 25 }]
+  }, null, 2));
+  await page.getByRole("button", { name: "Save Mechanics" }).click();
+  await expect(page.locator(".status-line")).toHaveText("Content mechanics updated.");
+  await expect(page).toHaveScreenshot("instructor-control-plane.png", { fullPage: true, maxDiffPixelRatio: 0.02 });
 
   await page.getByLabel("Manual score").fill("9");
   await page.getByLabel("Feedback").fill("Clear escalation rationale.");
@@ -79,6 +105,19 @@ test("instructor grades a manual attempt and retries AGS publishing", async ({ p
   expect(calls).toContain("POST /api/v1/admin/diagnostics/ags-publish-attempts/process-due");
 });
 
+test("instructor control plane renders empty and blocked states", async ({ page }) => {
+  await mockEmptyControlPlaneApi(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Instructor Delivery" }).click();
+
+  await expect(page.getByText("Launch context needs refresh")).toBeVisible();
+  await expect(page.getByText("No content available to manage.")).toBeVisible();
+  await expect(page.getByText("No AGS publish attempts match the current filters.")).toBeVisible();
+  await expect(page.getByText("No question attempts match the current filters.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Process Due" })).toBeDisabled();
+  await expect(page).toHaveScreenshot("instructor-control-plane-empty-error.png", { fullPage: true, maxDiffPixels: 500 });
+});
+
 async function mockInstructorApi(page: Page, calls: string[]) {
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -88,6 +127,18 @@ async function mockInstructorApi(page: Page, calls: string[]) {
 
     if (url.pathname === "/api/v1/session") return route.fulfill({ json: instructorSession });
     if (url.pathname === "/api/v1/content" || url.pathname === "/api/v1/admin/content") return route.fulfill({ json: content });
+    if (url.pathname === "/api/v1/admin/content/game-1/mechanics" && request.method() === "PATCH") {
+      expect(request.headers()["x-csrf-token"]).toBe("csrf-e2e");
+      expect(request.postDataJSON()).toEqual({
+        mechanics: {
+          kind: "packet_capture",
+          title: "Capture updated trail",
+          prompt: "Updated game shell.",
+          nodes: [{ id: "proxy", label: "Proxy", points: 25 }]
+        }
+      });
+      return route.fulfill({ json: { ...content[1], mechanics: request.postDataJSON().mechanics } });
+    }
     if (url.pathname === "/api/v1/content/progress") return route.fulfill({ json: { progress: [] } });
     if (url.pathname === "/api/v1/content/module-1/completion") {
       return route.fulfill({
@@ -175,6 +226,52 @@ async function mockInstructorApi(page: Page, calls: string[]) {
       return route.fulfill({ json: { scanned: 1, retried: 1, failed: 0, exhausted: 0 } });
     }
     return route.fulfill({ status: 404, json: { error: { message: `Unexpected ${key}` } } });
+  });
+}
+
+async function mockEmptyControlPlaneApi(page: Page) {
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+
+    if (url.pathname === "/api/v1/session") return route.fulfill({ json: instructorSession });
+    if (url.pathname === "/api/v1/content" || url.pathname === "/api/v1/admin/content") return route.fulfill({ json: [] });
+    if (url.pathname === "/api/v1/content/progress") return route.fulfill({ json: { progress: [] } });
+    if (url.pathname === "/api/v1/dashboard/scoreboard") return route.fulfill({ json: { entries: [] } });
+    if (url.pathname === "/api/v1/admin/diagnostics/session") {
+      return route.fulfill({
+        json: {
+          courseId: "CYB-201",
+          cohortId: "spring-2026",
+          role: "instructor",
+          visibleContentCount: 0,
+          contentCounts: []
+        }
+      });
+    }
+    if (url.pathname === "/api/v1/admin/cohorts") return route.fulfill({ json: { cohorts: [] } });
+    if (url.pathname === "/api/v1/admin/analytics/question-attempts") return route.fulfill({ json: { attempts: [] } });
+    if (url.pathname === "/api/v1/admin/diagnostics/ags-token-context") {
+      return route.fulfill({
+        json: {
+          courseId: "CYB-201",
+          cohortId: "spring-2026",
+          hasLaunchContext: false,
+          hasScoreScope: false,
+          scopes: []
+        }
+      });
+    }
+    if (url.pathname === "/api/v1/admin/diagnostics/ags-publish-attempts") {
+      return route.fulfill({
+        json: {
+          attempts: [],
+          summary: { total: 0, byStatus: { failed: 0, pending: 0, retry_exhausted: 0, published: 0 } }
+        }
+      });
+    }
+    if (url.pathname === "/api/v1/admin/diagnostics/notifications") return route.fulfill({ json: { notifications: [] } });
+    return route.fulfill({ status: 404, json: { error: { message: `Unexpected ${request.method()} ${url.pathname}` } } });
   });
 }
 

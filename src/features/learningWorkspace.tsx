@@ -1,6 +1,10 @@
-import type { AnswerState, AnswerValue, AssignmentCompletion, ContentFilter, ContentProgress, ContentType, PactContent, PactQuestion, PactSession, QuestionSubmissionFeedback, ScoreboardEntry } from "../types";
-import { contentTypeLabel, contextSquadLabel, text } from "../lib/format";
-import { isRecord, scoreQuestion, toggle } from "../lib/scoring";
+import { useState } from "react";
+import type { AnswerState, AnswerValue, AssignmentCompletion, ContentFilter, ContentProgress, ContentType, MechanicsState, PactContent, PactSession, QuestionSubmissionFeedback, ScoreboardEntry } from "../types";
+import { contentTypeLabel, contextSquadLabel } from "../lib/format";
+import { readBooleanPreference, UI_PREF_KEYS, writeBooleanPreference } from "../lib/uiPreferences";
+import { ModuleRunner } from "./learnerMissionRunner";
+import type { MechanicOutcome } from "./learnerMechanicsTypes";
+import { contentTypeCounts, contentTypeModeLabel, InteractiveGlobe, MissionProgressCard, MissionQueueItem, MissionTypeCard, OperatorHud, ProgressTrack, type HudCallout } from "../components/pact";
 import { Empty } from "./pactShared";
 
 export function ContentWorkspace({
@@ -22,11 +26,14 @@ export function ContentWorkspace({
   persistedProgress,
   scoreboard,
   status,
+  focused,
+  onFocusedChange,
   onFilterChange,
   onSelectContent,
   onAnswer,
   onQuestionSelect,
   onSubmitQuestion,
+  onMechanicsStateChange,
   onSubmit
 }: {
   content: PactContent[];
@@ -47,15 +54,44 @@ export function ContentWorkspace({
   persistedProgress?: ContentProgress;
   scoreboard: ScoreboardEntry[];
   status: string;
+  focused: boolean;
+  onFocusedChange: (focused: boolean) => void;
   onFilterChange: (filter: ContentFilter) => void;
   onSelectContent: (id: string) => void;
   onAnswer: (questionId: string, value: AnswerValue) => void;
   onQuestionSelect: (index: number) => void;
   onSubmitQuestion: (questionId: string) => void;
-  onSubmit: () => void;
+  onMechanicsStateChange: (state: MechanicsState, outcome: MechanicOutcome) => void;
+  onSubmit: (outcome?: MechanicOutcome) => void;
 }) {
+  const contentCounts = contentTypeCounts(content);
+  const [queueCollapsed, setQueueCollapsed] = useState(() => readBooleanPreference(UI_PREF_KEYS.queueCollapsed));
+
+  function setQueuePreference(next: boolean) {
+    writeBooleanPreference(UI_PREF_KEYS.queueCollapsed, next);
+    setQueueCollapsed(next);
+  }
+
+  function toggleQueueCollapsed() {
+    setQueuePreference(!queueCollapsed);
+  }
+
   return (
-    <section className="module-layout">
+    <section className={`module-layout ${queueCollapsed ? "queue-collapsed" : ""} ${focused ? "task-focused" : ""}`}>
+      <MissionOverview
+        content={content}
+        selectedContent={selectedContent}
+        answeredCount={answeredCount}
+        progressPercent={progressPercent}
+        result={result}
+        session={session}
+        contentCounts={contentCounts}
+        focused={focused}
+        queueCollapsed={queueCollapsed}
+        onFocusedChange={onFocusedChange}
+        onQueueCollapsedChange={setQueuePreference}
+        onTypeSelect={onFilterChange}
+      />
       <ModuleList
         content={content}
         allContentCount={allContentCount}
@@ -63,8 +99,18 @@ export function ContentWorkspace({
         availableTypes={availableTypes}
         session={session}
         selectedContentId={selectedContent?.id}
+        collapsed={queueCollapsed}
+        onToggleCollapsed={toggleQueueCollapsed}
         onFilterChange={onFilterChange}
         onSelect={onSelectContent}
+      />
+      <FocusProgressDock
+        content={selectedContent}
+        focused={focused}
+        progressPercent={progressPercent}
+        answeredCount={answeredCount}
+        result={result}
+        session={session}
       />
       <ModuleRunner
         content={selectedContent}
@@ -80,6 +126,7 @@ export function ContentWorkspace({
         onAnswer={onAnswer}
         onQuestionSelect={onQuestionSelect}
         onSubmitQuestion={onSubmitQuestion}
+        onMechanicsStateChange={onMechanicsStateChange}
         onSubmit={onSubmit}
       />
       <ActivityPanel
@@ -98,6 +145,109 @@ export function ContentWorkspace({
   );
 }
 
+function MissionOverview({
+  content,
+  selectedContent,
+  answeredCount,
+  progressPercent,
+  result,
+  session,
+  contentCounts,
+  focused,
+  queueCollapsed,
+  onFocusedChange,
+  onQueueCollapsedChange,
+  onTypeSelect
+}: {
+  content: PactContent[];
+  selectedContent?: PactContent;
+  answeredCount: number;
+  progressPercent: number;
+  result?: { score: number; maxScore: number };
+  session?: PactSession;
+  contentCounts: Record<ContentType, number>;
+  focused: boolean;
+  queueCollapsed: boolean;
+  onFocusedChange: (focused: boolean) => void;
+  onQueueCollapsedChange: (collapsed: boolean) => void;
+  onTypeSelect: (filter: ContentFilter) => void;
+}) {
+  const questionCount = selectedContent?.questions?.length ?? 0;
+  const scoreLabel = result ? `${result.score}/${result.maxScore}` : `${answeredCount}/${questionCount}`;
+  return (
+    <article className="mission-overview">
+      <div className="mission-copy">
+        <span>{selectedContent ? `${contentTypeLabel(selectedContent.type)} operation` : "PACT operation"}</span>
+        <strong className="mission-title">{selectedContent?.title ?? "Choose a PACT mission"}</strong>
+        <p>{selectedContent?.prompt ?? "Select a module, challenge, game, or assessment to begin."}</p>
+      </div>
+      <MissionProgressCard
+        value={progressPercent}
+        detail={`${scoreLabel} current submissions ${session?.squadNumber ? `| Squad ${session.squadNumber}` : ""}`}
+      />
+      <div className="mission-type-grid" aria-label="PACT activity types">
+        {(["module", "challenge", "game", "assessment"] as ContentType[]).map((type) => (
+          <MissionTypeCard active={selectedContent?.type === type} count={contentCounts[type]} key={type} onSelect={onTypeSelect} type={type} />
+        ))}
+      </div>
+      <div className="mission-roster">
+        <span>Queue</span>
+        <strong>{content.length}</strong>
+      </div>
+      <LearnerPreferencesMenu
+        focused={focused}
+        queueCollapsed={queueCollapsed}
+        onFocusedChange={onFocusedChange}
+        onQueueCollapsedChange={onQueueCollapsedChange}
+      />
+      <InteractiveGlobe autoRotate={false} className="mission-globe" interactive={false} />
+    </article>
+  );
+}
+
+function LearnerPreferencesMenu({
+  focused,
+  queueCollapsed,
+  onFocusedChange,
+  onQueueCollapsedChange
+}: {
+  focused: boolean;
+  queueCollapsed: boolean;
+  onFocusedChange: (focused: boolean) => void;
+  onQueueCollapsedChange: (collapsed: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="learner-preferences">
+      <button type="button" className="secondary-button" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+        Preferences
+      </button>
+      {open ? (
+        <div className="learner-preferences-panel" role="dialog" aria-label="Learner preferences">
+          <div>
+            <strong>Learning view</strong>
+            <p>Saved on this browser.</p>
+          </div>
+          <label>
+            <span>
+              <strong>Focus current task</strong>
+              <small>Hide session metadata and queue.</small>
+            </span>
+            <input type="checkbox" checked={focused} onChange={(event) => onFocusedChange(event.target.checked)} />
+          </label>
+          <label>
+            <span>
+              <strong>Collapse queue</strong>
+              <small>Keep missions in a slim rail.</small>
+            </span>
+            <input type="checkbox" checked={queueCollapsed} onChange={(event) => onQueueCollapsedChange(event.target.checked)} />
+          </label>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ModuleList({
   content,
   allContentCount,
@@ -105,6 +255,8 @@ function ModuleList({
   availableTypes,
   session,
   selectedContentId,
+  collapsed,
+  onToggleCollapsed,
   onFilterChange,
   onSelect
 }: {
@@ -114,17 +266,25 @@ function ModuleList({
   availableTypes: ContentType[];
   session?: PactSession;
   selectedContentId?: string;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   onFilterChange: (filter: ContentFilter) => void;
   onSelect: (id: string) => void;
 }) {
   return (
-    <article className="module-list">
+    <article className={`module-list ${collapsed ? "collapsed" : ""}`}>
       <div className="panel-title">
-        <div>
-          <h2>Module Playlist</h2>
+        <div className="panel-title-copy">
+          <span className="panel-label">Mission Queue</span>
+          <h2>Training Queue</h2>
           <p>{allContentCount} assigned item{allContentCount === 1 ? "" : "s"}</p>
         </div>
-        <span className="panel-count">{content.length}</span>
+        <div className="queue-actions">
+          <span className="panel-count">{content.length}</span>
+          <button type="button" onClick={onToggleCollapsed} aria-expanded={!collapsed} aria-label={collapsed ? "Expand mission queue" : "Collapse mission queue"}>
+            {collapsed ? "Open" : "Hide"}
+          </button>
+        </div>
       </div>
       <div className="filter-tabs" aria-label="Filter content">
         <button className={filter === "all" ? "active" : ""} type="button" onClick={() => onFilterChange("all")}>All</button>
@@ -136,254 +296,46 @@ function ModuleList({
       </div>
       <div className="list">
         {content.length ? content.map((item) => (
-          <button className={`module-row ${item.id === selectedContentId ? "selected" : ""}`} key={item.id} type="button" onClick={() => onSelect(item.id)}>
-            <span className="module-index">{item.day ?? contentTypeLabel(item.type)}</span>
-            <span className="module-row-copy">
-              <strong>{item.title}</strong>
-              <small>{item.questionCount ?? item.questions?.length ?? 0} questions | {item.maxScore} pts | {item.cohortId ?? "all cohorts"}</small>
-            </span>
-            <span className="module-row-arrow" aria-hidden="true">&gt;</span>
-          </button>
+          <MissionQueueItem item={item} key={item.id} onSelect={onSelect} selected={item.id === selectedContentId} />
         )) : <Empty text={allContentCount ? "No assigned content matches this filter." : emptyContentMessage(session)} />}
       </div>
     </article>
   );
 }
 
-function ModuleRunner({
+function FocusProgressDock({
   content,
-  answers,
-  answeredCount,
-  activeQuestionIndex,
-  submittedQuestionIds,
-  questionFeedback,
+  focused,
   progressPercent,
+  answeredCount,
   result,
-  persistedProgress,
-  assignmentCompletion,
-  onAnswer,
-  onQuestionSelect,
-  onSubmitQuestion,
-  onSubmit
+  session
 }: {
   content?: PactContent;
-  answers: AnswerState;
-  answeredCount: number;
-  activeQuestionIndex: number;
-  submittedQuestionIds: string[];
-  questionFeedback: Record<string, QuestionSubmissionFeedback>;
+  focused: boolean;
   progressPercent: number;
+  answeredCount: number;
   result?: { score: number; maxScore: number };
-  persistedProgress?: ContentProgress;
-  assignmentCompletion?: AssignmentCompletion;
-  onAnswer: (questionId: string, value: AnswerValue) => void;
-  onQuestionSelect: (index: number) => void;
-  onSubmitQuestion: (questionId: string) => void;
-  onSubmit: () => void;
+  session?: PactSession;
 }) {
-  if (!content) return <article><Empty text="Sync PACT to load assigned content." /></article>;
-  const questions = content.questions ?? [];
-  const activeIndex = questions.length ? Math.min(activeQuestionIndex, questions.length - 1) : 0;
-  const activeQuestion = questions[activeIndex];
-  const activeValue = activeQuestion ? answers[activeQuestion.id] : undefined;
-  const activeSubmitted = activeQuestion ? submittedQuestionIds.includes(activeQuestion.id) : false;
-  const canSubmitContent = questions.length > 0 && answeredCount === questions.length;
-
+  if (!focused || !content) return null;
+  const questionCount = content.questions?.length ?? 0;
+  const scoreLabel = result ? `${result.score}/${result.maxScore}` : `${answeredCount}/${questionCount || content.questionCount || 0}`;
   return (
-    <article className="runner">
-      <div className="runner-head">
-        <div>
-          <span className="content-kicker">{contentTypeLabel(content.type)}{content.day ? ` | ${content.day}` : ""}</span>
-          <h2>{content.title}</h2>
-          <p>{content.prompt}</p>
-        </div>
-        <span className="question-total">{questions.length} questions</span>
+    <aside className={`focus-progress-dock type-${content.type}`} aria-label="Focused task progress">
+      <div>
+        <span>{contentTypeModeLabel(content.type)}</span>
+        <strong>{content.title}</strong>
       </div>
-      <div className="progress-block" aria-label="Content progress">
-        <div>
-          <strong>{progressPercent}% complete</strong>
-          <span>{answeredCount}/{questions.length} submitted</span>
-        </div>
-        <div className="progress-track"><span style={{ width: `${progressPercent}%` }} /></div>
+      <div className="focus-dock-meter">
+        <span>{progressPercent}%</span>
+        <ProgressTrack value={progressPercent} />
       </div>
-      {questions.length ? (
-        <QuestionStepper
-          activeIndex={activeIndex}
-          questions={questions}
-          submittedQuestionIds={submittedQuestionIds}
-          onSelect={onQuestionSelect}
-        />
-      ) : null}
-      {activeQuestion ? (
-        <QuestionCard
-          index={activeIndex + 1}
-          question={activeQuestion}
-          questionCount={questions.length}
-          value={activeValue}
-          isSubmitted={activeSubmitted}
-          submissionFeedback={questionFeedback[activeQuestion.id]}
-          canGoPrevious={activeIndex > 0}
-          canGoNext={activeIndex < questions.length - 1}
-          onChange={(value) => onAnswer(activeQuestion.id, value)}
-          onPrevious={() => onQuestionSelect(activeIndex - 1)}
-          onNext={() => onQuestionSelect(activeIndex + 1)}
-          onSubmit={() => onSubmitQuestion(activeQuestion.id)}
-        />
-      ) : <Empty text="This content does not have questions loaded yet." />}
-      <div className="submit-row">
-        {result ? <strong>{result.score}/{result.maxScore} submitted</strong> : <span>{submissionSummary(assignmentCompletion, persistedProgress, answeredCount, questions.length)}</span>}
-        <button type="button" onClick={onSubmit} disabled={!canSubmitContent}>Submit Content</button>
-      </div>
-    </article>
-  );
-}
-
-function QuestionStepper({ activeIndex, questions, submittedQuestionIds, onSelect }: {
-  activeIndex: number;
-  questions: PactQuestion[];
-  submittedQuestionIds: string[];
-  onSelect: (index: number) => void;
-}) {
-  return (
-    <ol className="question-stepper" aria-label="Question progress">
-      {questions.map((question, index) => (
-        <li className={`${submittedQuestionIds.includes(question.id) ? "complete" : ""} ${index === activeIndex ? "active" : ""}`} key={question.id}>
-          <button type="button" onClick={() => onSelect(index)} aria-label={`Question ${index + 1}`}>
-            {index + 1}
-          </button>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function QuestionCard({
-  index,
-  question,
-  questionCount,
-  value,
-  isSubmitted,
-  submissionFeedback,
-  canGoPrevious,
-  canGoNext,
-  onChange,
-  onPrevious,
-  onNext,
-  onSubmit
-}: {
-  index: number;
-  question: PactQuestion;
-  questionCount: number;
-  value?: AnswerValue;
-  isSubmitted: boolean;
-  submissionFeedback?: QuestionSubmissionFeedback;
-  canGoPrevious: boolean;
-  canGoNext: boolean;
-  onChange: (value: AnswerValue) => void;
-  onPrevious: () => void;
-  onNext: () => void;
-  onSubmit: () => void;
-}) {
-  const hasAnswer = hasAnswerValue(value);
-  const earnedPoints = scoreQuestion(question, value);
-  const displayedPoints = submissionFeedback?.earnedPoints ?? earnedPoints;
-  const possiblePoints = submissionFeedback?.possiblePoints ?? question.scoring.points;
-  const feedbackStatus = submissionFeedback?.status ?? (displayedPoints >= possiblePoints ? "correct" : displayedPoints > 0 ? "partial" : "incorrect");
-  const feedback = isSubmitted
-    ? feedbackStatus === "needs_review"
-      ? "Needs instructor review before final scoring."
-      : feedbackStatus === "correct"
-        ? (feedbackText(submissionFeedback) ?? text(question.feedback.correct)) || "Correct. This response earned full credit."
-        : (feedbackText(submissionFeedback) ?? text(question.feedback.incorrect)) || "Review this response before moving on."
-    : undefined;
-  return (
-    <section className={`question ${isSubmitted ? "answered" : ""}`}>
-      <header>
-        <div><span>Question {index}</span><small>{question.topic}</small></div>
-        <small>{index}/{questionCount} | {question.scoring.points} pts | {question.scoring.difficulty}</small>
-      </header>
-      <p>{text(question.stem)}</p>
-      <QuestionInput question={question} value={value} onChange={onChange} />
-      {isSubmitted ? (
-        <div className={`answer-feedback ${feedbackClass(feedbackStatus)}`} role="status">
-          <strong>{feedbackLabel(feedbackStatus)} | {displayedPoints}/{possiblePoints} points</strong>
-          <span>{feedback}</span>
-          {submissionFeedback?.nextState.attemptsRemaining !== undefined ? <small>{submissionFeedback.nextState.attemptsRemaining} attempts remaining</small> : null}
-          {question.feedback.reference ? <small>Reference: {question.feedback.reference}</small> : null}
-        </div>
-      ) : null}
-      <div className="question-actions">
-        <button type="button" className="secondary-button" onClick={onPrevious} disabled={!canGoPrevious}>Previous</button>
-        <button type="button" onClick={onSubmit} disabled={!hasAnswer}>Submit Question</button>
-        <button type="button" className="secondary-button" onClick={onNext} disabled={!canGoNext}>Next</button>
-      </div>
-    </section>
-  );
-}
-
-function QuestionInput({ question, value, onChange }: { question: PactQuestion; value?: AnswerValue; onChange: (value: AnswerValue) => void }) {
-  const payload = question.payload;
-  if (payload.kind === "true_false") {
-    return (
-      <div className="choice-grid two">
-        {[true, false].map((option) => (
-          <button className={value === option ? "selected" : ""} key={String(option)} type="button" onClick={() => onChange(option)}>
-            {option ? "True" : "False"}
-          </button>
-        ))}
-      </div>
-    );
-  }
-
-  if (payload.kind === "fill_blank") {
-    const current = isRecord(value) ? value : {};
-    return (
-      <div className="blank-grid">
-        {(payload.blanks ?? []).map((blank) => (
-          <label key={blank.id}>
-            <span>{text(blank.label)}</span>
-            <input value={current[blank.id] ?? ""} onChange={(event) => onChange({ ...current, [blank.id]: event.target.value })} />
-          </label>
-        ))}
-      </div>
-    );
-  }
-
-  if (payload.kind === "drag_match") {
-    const current = isRecord(value) ? value : {};
-    return (
-      <div className="match-grid">
-        {(payload.sources ?? []).map((source) => (
-          <label key={source.id}>
-            <span>{text(source.text)}</span>
-            <select value={current[source.id] ?? ""} onChange={(event) => onChange({ ...current, [source.id]: event.target.value })}>
-              <option value="">Choose match</option>
-              {(payload.targets ?? []).map((target) => <option key={target.id} value={target.id}>{text(target.text)}</option>)}
-            </select>
-          </label>
-        ))}
-      </div>
-    );
-  }
-
-  const selected = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
-  const allowsMultiple = payload.selectionMode === "multiple";
-  return (
-    <div className="choice-grid">
-      {(payload.options ?? []).map((option) => {
-        const isSelected = selected.includes(option.id);
-        return (
-          <button
-            className={isSelected ? "selected" : ""}
-            key={option.id}
-            type="button"
-            onClick={() => onChange(allowsMultiple ? toggle(selected, option.id) : option.id)}
-          >
-            {text(option.text)}
-          </button>
-        );
-      })}
-    </div>
+      <dl>
+        <div><dt>Progress</dt><dd>{scoreLabel}</dd></div>
+        <div><dt>Squad</dt><dd>{session ? contextSquadLabel(session) : "Launch required"}</dd></div>
+      </dl>
+    </aside>
   );
 }
 
@@ -414,33 +366,21 @@ function ActivityPanel({
   const questionCount = content?.questions?.length ?? 0;
   const completionState = completionDisplayState({ assignmentCompletion, completionScore, result, persistedProgress, ownScore, content });
   return (
-    <aside className="activity-panel" aria-label="Learning activity">
-      <section>
-        <h2>Activity</h2>
-        <div className="metric-grid">
-          <div><span>Progress</span><strong>{progressPercent}%</strong></div>
-          <div><span>Answered</span><strong>{answeredCount}/{questionCount}</strong></div>
-          <div><span>Possible</span><strong>{content?.maxScore ?? 0}</strong></div>
-        </div>
-      </section>
-      <section>
-        <h3>Current Context</h3>
-        <dl className="context-list">
-          <div><dt>Course</dt><dd>{session?.courseId ?? "Not connected"}</dd></div>
-          <div><dt>Cohort</dt><dd>{session?.cohortId ?? "Not connected"}</dd></div>
-          <div><dt>Squad</dt><dd>{session ? contextSquadLabel(session) : "Not connected"}</dd></div>
-        </dl>
-      </section>
-      <section>
-        <h3>Score Sync</h3>
-        <div className={`score-callout ${completionState.tone}`}>
-          <span>{completionState.label}</span>
-          <strong>{completionState.value}</strong>
-          <small>{completionState.detail}</small>
-        </div>
-      </section>
-      <section><h3>Status</h3><p className="muted">{status}</p></section>
-    </aside>
+    <OperatorHud
+      title="Activity"
+      metrics={[
+        { label: "Progress", value: `${progressPercent}%` },
+        { label: "Answered", value: `${answeredCount}/${questionCount}` },
+        { label: "Possible", value: content?.maxScore ?? 0 }
+      ]}
+      context={[
+        { label: "Course", value: session?.courseId ?? "Not connected" },
+        { label: "Cohort", value: session?.cohortId ?? "Not connected" },
+        { label: "Squad", value: session ? contextSquadLabel(session) : "Not connected" }
+      ]}
+      callout={completionState}
+      status={status}
+    />
   );
 }
 
@@ -451,7 +391,7 @@ function completionDisplayState(input: {
   persistedProgress?: ContentProgress;
   ownScore?: ScoreboardEntry;
   content?: PactContent;
-}) {
+}): HudCallout {
   if (input.assignmentCompletion?.status === "pending_manual") {
     return {
       tone: "pending",
@@ -524,45 +464,6 @@ function completionDisplayState(input: {
   };
 }
 
-function submissionSummary(completion: AssignmentCompletion | undefined, progress: ContentProgress | undefined, answeredCount: number, questionCount: number) {
-  if (completion?.status === "pending_manual") return "Pending instructor review";
-  if (completion?.status === "failed_must_pass") return "Must-pass requirement failed";
-  if (completion?.status === "complete") return "Completed and submitted";
-  if (progress?.status === "submitted") return "Previously submitted";
-  return `${answeredCount}/${questionCount} questions submitted`;
-}
-
-function feedbackText(feedback: QuestionSubmissionFeedback | undefined) {
-  if (typeof feedback?.feedback === "string") return feedback.feedback;
-  if (isLocalizedFeedback(feedback?.feedback)) return text(feedback.feedback);
-  return undefined;
-}
-
-function isLocalizedFeedback(value: unknown): value is { en?: string } {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function feedbackClass(status: QuestionSubmissionFeedback["status"]) {
-  if (status === "correct") return "correct";
-  if (status === "needs_review") return "pending";
-  return "incorrect";
-}
-
-function feedbackLabel(status: QuestionSubmissionFeedback["status"]) {
-  if (status === "needs_review") return "Needs review";
-  if (status === "correct") return "Correct";
-  if (status === "partial") return "Partial credit";
-  return "Incorrect";
-}
-
-function hasAnswerValue(value?: AnswerValue) {
-  if (value === undefined) return false;
-  if (typeof value === "string") return value.trim().length > 0;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "boolean") return true;
-  return Object.values(value).some((item) => item.trim().length > 0);
-}
-
 function emptyContentMessage(session?: PactSession) {
   if (session?.role === "admin" || session?.role === "instructor") {
     return "No content is assigned to this course or cohort yet.";
@@ -572,3 +473,4 @@ function emptyContentMessage(session?: PactSession) {
   const context = session ? `course ${session.courseId} and cohort ${session.cohortId}` : "this launch session";
   return `No published ${type} matches ${context}. Ask an instructor to publish or assign content for this launch.`;
 }
+
