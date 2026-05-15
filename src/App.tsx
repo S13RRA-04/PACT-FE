@@ -298,6 +298,24 @@ export function App() {
     }
   }
 
+  async function updateContentLock(contentId: string, locked: boolean) {
+    try {
+      await client.updateContentLock(contentId, locked);
+      const [contentResponse, managedResponse, diagnosticResponse] = await Promise.all([
+        client.getContent(),
+        client.getManagedContent(),
+        client.getSessionDiagnostic()
+      ]);
+      setContent(contentResponse);
+      setManagedContent(managedResponse);
+      setDiagnostic(diagnosticResponse);
+      if (!contentResponse.some((item) => item.id === selectedContentId)) setSelectedContentId(contentResponse[0]?.id);
+      setStatus(locked ? "Content locked from learners." : "Content unlocked for learners.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Unable to update content lock.");
+    }
+  }
+
   async function assignContentCohort(contentId: string, cohortId: string | null) {
     try {
       await client.updateContentAssignment(contentId, cohortId);
@@ -344,7 +362,7 @@ export function App() {
       const updated = await client.updateContentProgress(selectedContent.id, {
         mechanicsState: state,
         progressPercent: outcome.progressPercent,
-        status: outcome.progressPercent > 0 ? "in_progress" : "not_started"
+        status: outcome.progressPercent > 0 || typeof state.startedAt === "string" ? "in_progress" : "not_started"
       });
       if (updated) {
         setProgress((current) => [updated, ...current.filter((item) => item.contentId !== updated.contentId)]);
@@ -620,6 +638,7 @@ export function App() {
             diagnostic={diagnostic}
             canAdmin={canAdmin}
             onUpdateStatus={(id, nextStatus) => void updateGate(id, nextStatus)}
+            onUpdateLock={(id, locked) => void updateContentLock(id, locked)}
             onAssignContent={(id, cohortId) => void assignContentCohort(id, cohortId)}
             onUpdateLmsLabel={(id, lmsLabel) => void updateContentLmsLabel(id, lmsLabel)}
             onUpdateMechanics={(id, mechanics) => void updateContentMechanics(id, mechanics)}

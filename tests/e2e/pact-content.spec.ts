@@ -105,6 +105,12 @@ const content = [
       title: "Readiness checkpoint",
       prompt: "Work through the readiness gates before final assessment items are published.",
       resultLabel: "Gate readiness",
+      timing: {
+        enabled: true,
+        timeLimitSeconds: 900,
+        startTrigger: "learner_start",
+        submitTrigger: "content_submit"
+      },
       checks: [
         { id: "scope", label: "Scope incident evidence", initiallyChecked: true },
         { id: "risk", label: "Prioritize business risk" },
@@ -250,10 +256,16 @@ test("challenge and assessment shells expose interactive states", async ({ page 
 
   await page.getByLabel("PACT activity types").getByRole("button", { name: /Assessment/ }).click();
   await expect(page.getByText("Readiness checkpoint")).toBeVisible();
+  await expect(page.getByText("Timed assessment")).toBeVisible();
+  await page.getByRole("button", { name: "Start Assessment" }).click();
   await expect(page.locator(".shell-result").getByText("25%")).toBeVisible();
   await page.getByRole("button", { name: /Prioritize business risk/ }).click();
   await expect(page.locator(".shell-result").getByText("50%")).toBeVisible();
-  await expect(page).toHaveScreenshot("pact-assessment-shell.png", { fullPage: true, maxDiffPixelRatio: 0.03 });
+  await expect(page).toHaveScreenshot("pact-assessment-shell.png", {
+    fullPage: true,
+    mask: [page.locator(".assessment-timer strong"), page.locator(".assessment-timer small")],
+    maxDiffPixelRatio: 0.03
+  });
 });
 
 test("scoreboard renders mission leaderboard", async ({ page }) => {
@@ -386,6 +398,34 @@ async function mockPactApi(page: Page, options: { sessionOverride?: typeof sessi
         updatedAt: "2026-05-14T12:02:30.000Z"
       };
       progress = [updated, ...progress.filter((item) => item.contentId !== "game-1")];
+      return route.fulfill({ json: updated });
+    }
+    if (url.pathname === "/api/v1/content/assessment-1/progress" && route.request().method() === "PATCH") {
+      const body = route.request().postDataJSON();
+      expect(body.mechanicsState).toMatchObject({
+        kind: "readiness_checklist",
+        checkedIds: expect.any(Array),
+        startedAt: expect.any(String),
+        timing: {
+          startTrigger: "learner_start",
+          submitTrigger: "content_submit",
+          timeLimitSeconds: 900
+        }
+      });
+      const updated = {
+        id: "progress-assessment-1",
+        userId: "learner-3",
+        contentId: "assessment-1",
+        contentType: "assessment",
+        answers: {},
+        mechanicsState: body.mechanicsState,
+        answeredQuestionIds: [],
+        progressPercent: body.progressPercent,
+        status: body.status,
+        startedAt: body.mechanicsState.startedAt,
+        updatedAt: "2026-05-14T12:03:00.000Z"
+      };
+      progress = [updated, ...progress.filter((item) => item.contentId !== "assessment-1")];
       return route.fulfill({ json: updated });
     }
     if (url.pathname === "/api/v1/content/module-1/questions/q2/attempts" && route.request().method() === "POST") {

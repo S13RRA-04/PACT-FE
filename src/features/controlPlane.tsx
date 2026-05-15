@@ -25,6 +25,7 @@ export function ControlPlane({
   diagnostic,
   canAdmin,
   onUpdateStatus,
+  onUpdateLock,
   onAssignContent,
   onUpdateLmsLabel,
   onUpdateMechanics,
@@ -52,6 +53,7 @@ export function ControlPlane({
   diagnostic?: SessionDiagnostic;
   canAdmin: boolean;
   onUpdateStatus: (id: string, status: ContentStatus) => void;
+  onUpdateLock: (id: string, locked: boolean) => void;
   onAssignContent: (id: string, cohortId: string | null) => void;
   onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
   onUpdateMechanics: (id: string, mechanics: ContentMechanics | null) => void;
@@ -78,7 +80,7 @@ export function ControlPlane({
           diagnostic={diagnostic}
         />
       </article>
-      <ContentDeliveryManager content={content} cohorts={cohorts} onUpdateStatus={onUpdateStatus} onAssignContent={onAssignContent} onUpdateLmsLabel={onUpdateLmsLabel} onUpdateMechanics={onUpdateMechanics} />
+      <ContentDeliveryManager content={content} cohorts={cohorts} onUpdateStatus={onUpdateStatus} onUpdateLock={onUpdateLock} onAssignContent={onAssignContent} onUpdateLmsLabel={onUpdateLmsLabel} onUpdateMechanics={onUpdateMechanics} />
       <AgsDiagnosticsPanel
         content={content}
         cohorts={cohorts}
@@ -114,6 +116,7 @@ function ControlPlaneHero({
   diagnostic?: SessionDiagnostic;
 }) {
   const publishedCount = content.filter((item) => item.status === "published").length;
+  const unlockedCount = content.filter((item) => item.status === "published" && item.locked === false).length;
   const visibleCount = diagnostic?.visibleContentCount ?? publishedCount;
   const publishPercent = content.length ? Math.round((publishedCount / content.length) * 100) : 0;
   const counts = contentTypeCounts(content);
@@ -131,7 +134,7 @@ function ControlPlaneHero({
           <strong>{publishPercent}%</strong>
         </div>
         <ProgressTrack value={publishPercent} />
-        <small>{publishedCount}/{content.length || 0} published | {visibleCount} visible in launch context</small>
+        <small>{publishedCount}/{content.length || 0} published | {unlockedCount} unlocked | {visibleCount} visible in launch context</small>
       </div>
       <div className="control-hero-metrics" aria-label="Control plane summary">
         <div><span>Cohorts</span><strong>{cohorts.length}</strong></div>
@@ -591,10 +594,11 @@ function AttemptReviewPanel({
   );
 }
 
-function ContentDeliveryManager({ content, cohorts, onUpdateStatus, onAssignContent, onUpdateLmsLabel, onUpdateMechanics }: {
+function ContentDeliveryManager({ content, cohorts, onUpdateStatus, onUpdateLock, onAssignContent, onUpdateLmsLabel, onUpdateMechanics }: {
   content: PactContent[];
   cohorts: AdminCohort[];
   onUpdateStatus: (id: string, status: ContentStatus) => void;
+  onUpdateLock: (id: string, locked: boolean) => void;
   onAssignContent: (id: string, cohortId: string | null) => void;
   onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
   onUpdateMechanics: (id: string, mechanics: ContentMechanics | null) => void;
@@ -611,6 +615,7 @@ function ContentDeliveryManager({ content, cohorts, onUpdateStatus, onAssignCont
             key={item.id}
             onAssignContent={onAssignContent}
             onUpdateLmsLabel={onUpdateLmsLabel}
+            onUpdateLock={onUpdateLock}
             onUpdateMechanics={onUpdateMechanics}
             onUpdateStatus={onUpdateStatus}
           />
@@ -624,6 +629,7 @@ function ContentDeliveryRow({
   item,
   cohortOptions,
   onUpdateStatus,
+  onUpdateLock,
   onAssignContent,
   onUpdateLmsLabel,
   onUpdateMechanics
@@ -631,6 +637,7 @@ function ContentDeliveryRow({
   item: PactContent;
   cohortOptions: string[];
   onUpdateStatus: (id: string, status: ContentStatus) => void;
+  onUpdateLock: (id: string, locked: boolean) => void;
   onAssignContent: (id: string, cohortId: string | null) => void;
   onUpdateLmsLabel: (id: string, lmsLabel: string | null) => void;
   onUpdateMechanics: (id: string, mechanics: ContentMechanics | null) => void;
@@ -662,10 +669,16 @@ function ContentDeliveryRow({
   return (
     <div className={`gate-row type-${item.type}`}>
       <StatusPill tone={item.status ?? "draft"} label={item.status ?? "draft"} />
+      <StatusPill tone={item.locked === false ? "published" : "pending"} label={item.locked === false ? "unlocked" : "locked"} />
       <div><strong>{item.title}</strong><small>{contentTypeLabel(item.type)} | {item.questionCount ?? item.questions?.length ?? 0} questions | {item.cohortId ?? "all cohorts"}</small></div>
       <label className="inline-select"><span>Cohort</span><select value={item.cohortId ?? ""} onChange={(event) => onAssignContent(item.id, event.target.value || null)}><option value="">All cohorts</option>{cohortOptions.map((cohortId) => <option key={cohortId} value={cohortId}>{cohortId}</option>)}</select></label>
       <label className="inline-select"><span>LMS label</span><input defaultValue={item.lmsLabel ?? ""} onBlur={(event) => { const nextLabel = event.currentTarget.value.trim(); if (nextLabel !== (item.lmsLabel ?? "")) onUpdateLmsLabel(item.id, nextLabel || null); }} placeholder={item.title} /></label>
-      <div>{(["draft", "published", "archived"] as ContentStatus[]).map((status) => <button disabled={item.status === status} key={status} type="button" onClick={() => onUpdateStatus(item.id, status)}>{status}</button>)}</div>
+      <div className="gate-actions">
+        {(["draft", "published", "archived"] as ContentStatus[]).map((status) => <button disabled={item.status === status} key={status} type="button" onClick={() => onUpdateStatus(item.id, status)}>{status}</button>)}
+        <button className={item.locked === false ? "secondary-button" : ""} type="button" disabled={item.status !== "published"} onClick={() => onUpdateLock(item.id, item.locked === false)}>
+          {item.locked === false ? "Lock" : "Unlock"}
+        </button>
+      </div>
       {item.type !== "module" ? (
         <details className="mechanics-editor">
           <summary>Mechanics JSON</summary>

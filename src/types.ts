@@ -196,11 +196,19 @@ export type AssessmentMechanics = {
   title: string;
   prompt: string;
   resultLabel?: string;
+  timing?: AssessmentTimingConfig;
   checks: Array<{
     id: string;
     label: string;
     initiallyChecked?: boolean;
   }>;
+};
+
+export type AssessmentTimingConfig = {
+  enabled: boolean;
+  timeLimitSeconds?: number;
+  startTrigger: "learner_start";
+  submitTrigger: "content_submit";
 };
 
 export type ContentMechanics = ChallengeMechanics | GameMechanics | AssessmentMechanics;
@@ -219,6 +227,7 @@ export type PactContent = {
   questionCount?: number;
   questions?: PactQuestion[];
   mechanics?: ContentMechanics;
+  locked?: boolean;
 };
 
 export type AnswerValue = string | string[] | Record<string, string> | boolean;
@@ -239,6 +248,7 @@ export type ContentProgress = {
   maxScore?: number;
   status: "not_started" | "in_progress" | "submitted";
   submittedAt?: string;
+  startedAt?: string;
   updatedAt: string;
 };
 
@@ -310,6 +320,7 @@ export type AgsPublishAttempt = {
   score: number;
   maxScore: number;
   progressPercent: number;
+  comment?: string;
   status: AgsPublishAttemptStatus;
   retryCount?: number;
   nextRetryAt?: string;

@@ -202,6 +202,13 @@ export class PactClient {
     });
   }
 
+  async updateContentLock(contentId: string, locked: boolean) {
+    return this.request<PactContent>(`/api/v1/admin/content/${encodeURIComponent(contentId)}/lock`, {
+      method: "PATCH",
+      body: JSON.stringify({ locked })
+    });
+  }
+
   async updateContentAssignment(contentId: string, cohortId: string | null) {
     return this.request<PactContent>(`/api/v1/admin/content/${encodeURIComponent(contentId)}/assignment`, {
       method: "PATCH",
