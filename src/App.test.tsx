@@ -32,21 +32,7 @@ describe("PACT admin console", () => {
         return jsonResponse({ progress: [] });
       }
       if (path === "/api/v1/content/legacy-module/completion") {
-        return jsonResponse({
-          contentId: "legacy-module",
-          completion: {
-            complete: false,
-            status: "in_progress",
-            requiredQuestionIds: [],
-            answeredRequiredQuestionIds: [],
-            pendingQuestionIds: [],
-            pendingManualQuestionIds: [],
-            failedMustPassQuestionIds: [],
-            exhaustedQuestionIds: [],
-            score: 0,
-            maxScore: 0
-          }
-        });
+        return jsonResponse({ error: { message: "Not found" } }, 404);
       }
       if (path === "/api/v1/dashboard/scoreboard") {
         return jsonResponse({ entries: [] });

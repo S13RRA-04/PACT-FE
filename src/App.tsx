@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import pactLogo from "./assets/pact-logo-display.png";
-import { ContentWorkspace, ControlPlane, Scoreboard, SessionDiagnosticSummary } from "./features/pactWorkspace";
+import { ControlPlane } from "./features/controlPlane";
+import { ContentWorkspace } from "./features/learningWorkspace";
+import { Scoreboard } from "./features/scoreboard";
+import { SessionDiagnosticSummary } from "./features/pactShared";
 import { contextSquadLabel, initialsFor, roleLabel, themeLabelFor } from "./lib/format";
 import { PactClient } from "./lib/pactClient";
 import { scoreQuestion } from "./lib/scoring";
@@ -98,7 +101,9 @@ export function App() {
       setContent(contentResponse);
       setProgress(progressResponse.progress);
       setScoreboard(scoreboardResponse.entries);
-      const nextSelectedId = selectedContentId ?? contentResponse[0]?.id;
+      const nextSelectedId = contentResponse.some((item) => item.id === selectedContentId)
+        ? selectedContentId
+        : contentResponse[0]?.id;
       const nextProgress = progressResponse.progress.find((item) => item.contentId === nextSelectedId);
       setSelectedContentId(nextSelectedId);
       setAnswers(nextProgress?.answers ?? {});
@@ -404,12 +409,15 @@ export function App() {
       <aside className="side">
         <div className="brand">
           <img src={pactLogo} alt="PACT Cyber Education and Training Unit" />
-          <strong>PACT</strong>
+          <div>
+            <strong>PACT</strong>
+            <span>Training Operations</span>
+          </div>
         </div>
-        <nav>
-          <button className={view === "modules" ? "active" : ""} type="button" onClick={() => setView("modules")}><span>Training</span></button>
-          {canManage ? <button className={view === "control" ? "active" : ""} type="button" onClick={() => setView("control")}><span>Instructor Delivery</span></button> : null}
-          <button className={view === "scoreboard" ? "active" : ""} type="button" onClick={() => setView("scoreboard")}><span>Scoreboard</span></button>
+        <nav aria-label="PACT workspace">
+          <button className={view === "modules" ? "active" : ""} type="button" onClick={() => setView("modules")}><span className="nav-icon" aria-hidden="true">T</span><span>Training</span></button>
+          {canManage ? <button className={view === "control" ? "active" : ""} type="button" onClick={() => setView("control")}><span className="nav-icon" aria-hidden="true">D</span><span>Instructor Delivery</span></button> : null}
+          <button className={view === "scoreboard" ? "active" : ""} type="button" onClick={() => setView("scoreboard")}><span className="nav-icon" aria-hidden="true">S</span><span>Scoreboard</span></button>
         </nav>
         <div className="side-user">
           <span>{session ? initialsFor(session.userId) : "P"}</span>
@@ -419,7 +427,7 @@ export function App() {
 
       <section className="workspace">
         <header className="topbar">
-          <div><span>Training</span><h1>{selectedContent?.title ?? "PACT Content Workspace"}</h1></div>
+          <div><span>{view === "modules" ? "Training" : view === "control" ? "Instructor Delivery" : "Scoreboard"}</span><h1>{selectedContent?.title ?? "PACT Content Workspace"}</h1></div>
           <div className="topbar-actions">
             {session ? <span className="role-chip">{themeLabelFor(session)}</span> : null}
             <button type="button" onClick={() => void loadDashboard()} disabled={!isConnected}>Sync</button>

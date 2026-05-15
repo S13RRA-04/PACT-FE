@@ -56,6 +56,7 @@ test("instructor grades a manual attempt and retries AGS publishing", async ({ p
   await expect(page.getByRole("heading", { name: "Question Attempt Review" })).toBeVisible();
   await expect(page.getByText("Incident Triage Fundamentals | Manual analysis")).toBeVisible();
   await expect(page.getByText("Awaiting instructor grade")).toBeVisible();
+  await expect(page).toHaveScreenshot("instructor-control-plane.png", { fullPage: true });
 
   await page.getByLabel("Manual score").fill("9");
   await page.getByLabel("Feedback").fill("Clear escalation rationale.");

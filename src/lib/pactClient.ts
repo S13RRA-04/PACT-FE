@@ -1,5 +1,12 @@
 import type { AdminAuditAction, AdminAuditEvent, AdminCohort, AdminUser, AgsAttemptPage, AgsPublishAttemptStatus, AgsQueueProcessingResult, AgsTokenContextDiagnostic, AnswerValue, AssignmentCompletion, ContentProgress, ContentStatus, ManualGradingStatus, PactContent, PactNotification, PactNotificationStatus, PactSession, QuestionAttempt, QuestionSubmissionFeedback, ScoreboardEntry, SessionDiagnostic, SquadNumber } from "../types";
 
+type ContentCompletionResponse = {
+  contentId: string;
+  completion: AssignmentCompletion;
+  progress?: ContentProgress;
+  score?: { score: number; maxScore: number; progressPercent: number; agsStatus: string };
+};
+
 export class PactClient {
   private csrfToken: string | undefined;
 
@@ -28,13 +35,29 @@ export class PactClient {
     }
   }
 
-  async getContentCompletion(contentId: string) {
-    return this.request<{
-      contentId: string;
-      completion: AssignmentCompletion;
-      progress?: ContentProgress;
-      score?: { score: number; maxScore: number; progressPercent: number; agsStatus: string };
-    }>(`/api/v1/content/${encodeURIComponent(contentId)}/completion`);
+  async getContentCompletion(contentId: string): Promise<ContentCompletionResponse> {
+    try {
+      return await this.request<ContentCompletionResponse>(`/api/v1/content/${encodeURIComponent(contentId)}/completion`);
+    } catch (error) {
+      if (error instanceof PactApiError && error.status === 404) {
+        return {
+          contentId,
+          completion: {
+            complete: false,
+            status: "in_progress",
+            score: 0,
+            maxScore: 0,
+            requiredQuestionIds: [],
+            answeredRequiredQuestionIds: [],
+            pendingQuestionIds: [],
+            pendingManualQuestionIds: [],
+            failedMustPassQuestionIds: [],
+            exhaustedQuestionIds: []
+          }
+        };
+      }
+      throw error;
+    }
   }
 
   async updateContentProgress(contentId: string, input: Pick<ContentProgress, "answers" | "progressPercent">) {
